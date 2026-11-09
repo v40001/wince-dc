@@ -18,7 +18,7 @@
 #include "vmustore.h"
 
 #define TASK_H     26
-#define ROW_H      32 // Start-menu row height
+#define ROW_H      36 // Start-menu row height (stock CE menu rows are tall touch targets)
 #define TASK_Y     (SCREEN_H - TASK_H)
 #define MENU_W     168
 
@@ -70,15 +70,15 @@ static const SHORTCUT s_start[] = {
 
 // Width of the vertical "Windows CE" brand strip along the left edge of the open Start menu
 // (the stock ceshell bitmap, loaded as \Windows\startban.bmp). 0 when the bitmap isn't
-// staged -> the menu falls back to the plain look. The bitmap keeps its aspect ratio,
-// scaled to the menu's height.
+// staged -> the menu falls back to the plain look. The stock shell reserves a strip twice
+// the bitmap's native width and stretches the image to the menu's full height.
 static int StartMenuStrip(void)
 {
 	int nBanW = 0, nBanH = 0;
 	GfxBannerSize(&nBanW, &nBanH);
 	if (nBanW <= 0 || nBanH <= 0)
 		return 0;
-	return ((int)START_N * ROW_H + 2) * nBanW / nBanH;
+	return nBanW * 2;
 }
 
 // --- right-click context menu (LT+A on the pad, or the DC mouse's right button) ---
