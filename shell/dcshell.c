@@ -31,12 +31,35 @@
 #define STRIP_W    26
 #define MENU_PAD   2
 
+// Win32 OEM VKs for punctuation keys; CE 2.12's winuser.h doesn't ship them (dcinput
+// maps the DC keyboard's punctuation DIKs to these).
+#ifndef VK_OEM_1
+#define VK_OEM_1      0xBA
+#define VK_OEM_PLUS   0xBB
+#define VK_OEM_COMMA  0xBC
+#define VK_OEM_MINUS  0xBD
+#define VK_OEM_PERIOD 0xBE
+#define VK_OEM_2      0xBF
+#define VK_OEM_3      0xC0
+#define VK_OEM_4      0xDB
+#define VK_OEM_5      0xDC
+#define VK_OEM_6      0xDD
+#define VK_OEM_7      0xDE
+#endif
+
 #define CL_DESKTOP RGB(0, 128, 128)
 #define CL_FACE    RGB(192, 192, 192)
 #define CL_TITLE   RGB(0, 0, 128)
 #define CL_SEL     RGB(0, 0, 128)
 #define CL_TEXT    RGB(0, 0, 0)
 #define CL_WHITE   RGB(255, 255, 255)
+
+// Shell-internal commands for Start-menu items that aren't a plain launch/open.
+#define SCMD_NONE       0
+#define SCMD_HELP       1 // Help -> browse \Windows (peghelp has no help data on this disc)
+#define SCMD_RUN        2 // Run... -> the Run dialog
+#define SCMD_SUSPEND    3 // Suspend -> power down (exit the shell back to the DCWin loader)
+#define SCMD_TASKBAROPT 4 // Settings -> Taskbar -> Taskbar Properties
 
 typedef struct
 {
@@ -45,6 +68,9 @@ typedef struct
 	const WCHAR *exe;  // launch this app, or NULL
 	int icon;          // ICON_*
 	int sep;           // draw an etched separator groove at the top of this row (Start menu)
+	int sub;           // SUB_* cascade id, or -1
+	int cmd;           // SCMD_*
+	int dis;           // greyed out (the stock "(Empty)" placeholder row)
 } SHORTCUT;
 
 // Built-in desktop shortcuts. The live desktop is a mutable copy (s_aDesk) so the user can
@@ -52,14 +78,14 @@ typedef struct
 // VMU. String pointers always point at const tables (defaults here / s_start below), so the
 // live array stores no allocations.
 static const SHORTCUT s_deskDefault[] = {
-    {L"My Dreamcast", L"\\", NULL, ICON_SWIRL},
-    {L"Recycle Bin", L"\\", NULL, ICON_BIN},
-    {L"CD-ROM", L"\\CD-ROM", NULL, ICON_DRIVE},
-    {L"Calculator", NULL, L"dcwcalc.exe", ICON_APP},
-    {L"Clock", NULL, L"dcwclock.exe", ICON_CLOCK},
-    {L"Task Manager", NULL, L"dcwtask.exe", ICON_APP},
-    {L"Network", NULL, L"dcwnet.exe", ICON_NET},
-    {L"System Log", NULL, L"dcwlog.exe", ICON_FILE},
+    {L"My Dreamcast", L"\\", NULL, ICON_SWIRL, 0, -1, SCMD_NONE, 0},
+    {L"Recycle Bin", L"\\", NULL, ICON_BIN, 0, -1, SCMD_NONE, 0},
+    {L"CD-ROM", L"\\CD-ROM", NULL, ICON_DRIVE, 0, -1, SCMD_NONE, 0},
+    {L"Calculator", NULL, L"dcwcalc.exe", ICON_APP, 0, -1, SCMD_NONE, 0},
+    {L"Clock", NULL, L"dcwclock.exe", ICON_CLOCK, 0, -1, SCMD_NONE, 0},
+    {L"Task Manager", NULL, L"dcwtask.exe", ICON_APP, 0, -1, SCMD_NONE, 0},
+    {L"Network", NULL, L"dcwnet.exe", ICON_NET, 0, -1, SCMD_NONE, 0},
+    {L"System Log", NULL, L"dcwlog.exe", ICON_FILE, 0, -1, SCMD_NONE, 0},
 };
 #define DEFAULT_N (sizeof(s_deskDefault) / sizeof(s_deskDefault[0]))
 #define MAXDESK   24
@@ -67,16 +93,82 @@ static SHORTCUT s_aDesk[MAXDESK]; // live desktop shortcuts
 static int s_anDeskUser[MAXDESK]; // for user-added: the s_start[] index it came from; -1 = built-in
 static int s_cDesk = 0;
 
+// The stock ceshell Start menu: four cascades + Help + Run, separator, Suspend (the ROM
+// strings are &Programs/&Favorites/&Documents/&Settings/&Help/&Run.../S&uspend). The real
+// shell enumerates \Windows\Programs for the first cascade and \Windows\Favorites /
+// \Windows\Recent for the next two; ours ships a fixed app list + the "(Empty)" placeholders
+// the stock shell shows for empty folders.
+#define SUB_PROGRAMS  0
+#define SUB_FAVORITES 1
+#define SUB_DOCUMENTS 2
+#define SUB_SETTINGS  3
+#define SUB_COUNT     4
+
+static const SHORTCUT s_subPrograms[] = {
+    {L"Windows Explorer", L"\\", NULL, ICON_EXPLORER, 0, -1, SCMD_NONE, 0},
+    {L"Internet Explorer", NULL, L"iexplore.exe", ICON_IE, 0, -1, SCMD_NONE, 0},
+    {L"Calculator", NULL, L"dcwcalc.exe", ICON_APP, 0, -1, SCMD_NONE, 0},
+    {L"Clock", NULL, L"dcwclock.exe", ICON_CLOCK, 0, -1, SCMD_NONE, 0},
+    {L"Task Manager", NULL, L"dcwtask.exe", ICON_APP, 0, -1, SCMD_NONE, 0},
+    {L"System", NULL, L"dcwmem.exe", ICON_CPL, 0, -1, SCMD_NONE, 0},
+    {L"Network", NULL, L"dcwnet.exe", ICON_NET, 0, -1, SCMD_NONE, 0},
+    {L"System Log", NULL, L"dcwlog.exe", ICON_FILE, 0, -1, SCMD_NONE, 0},
+    {L"Music Player", NULL, L"dcwplay.exe", ICON_APP, 0, -1, SCMD_NONE, 0},
+    {L"Crash Test", NULL, L"dcwtask.exe crash", ICON_APP, 0, -1, SCMD_NONE, 0},
+};
+static const SHORTCUT s_subFavorites[] = {
+    {L"(Empty)", NULL, NULL, 0, 0, -1, SCMD_NONE, 1},
+};
+static const SHORTCUT s_subDocuments[] = {
+    {L"(Empty)", NULL, NULL, 0, 0, -1, SCMD_NONE, 1},
+};
+static const SHORTCUT s_subSettings[] = {
+    {L"Control Panel", NULL, L"dcwmem.exe", ICON_CPL, 0, -1, SCMD_NONE, 0},
+    {L"Taskbar", NULL, NULL, ICON_TASKBAR, 0, -1, SCMD_TASKBAROPT, 0},
+};
+
 static const SHORTCUT s_start[] = {
-    {L"My Dreamcast", L"\\", NULL, ICON_SWIRL, 0},
-    {L"Windows", L"\\Windows", NULL, ICON_FOLDER, 0},
-    {L"CD-ROM", L"\\CD-ROM", NULL, ICON_DRIVE, 0},
-    {L"Task Manager", NULL, L"dcwtask.exe", ICON_APP, 0},
-    {L"Crash Test", NULL, L"dcwtask.exe crash", ICON_APP, 0},
-    {NULL, NULL, NULL, 0, 1}, // 7px etched separator row, like the stock menu's before "Suspend"
-    {L"Shut Down...", NULL, NULL, ICON_POWER, 0},
+    {L"Programs", NULL, NULL, ICON_PROGRAMS, 0, SUB_PROGRAMS, SCMD_NONE, 0},
+    {L"Favorites", NULL, NULL, ICON_FAVORITES, 0, SUB_FAVORITES, SCMD_NONE, 0},
+    {L"Documents", NULL, NULL, ICON_DOCUMENTS, 0, SUB_DOCUMENTS, SCMD_NONE, 0},
+    {L"Settings", NULL, NULL, ICON_SETTINGS, 0, SUB_SETTINGS, SCMD_NONE, 0},
+    {L"Help", NULL, NULL, ICON_HELP, 0, -1, SCMD_HELP, 0},
+    {L"Run...", NULL, NULL, ICON_RUN, 0, -1, SCMD_RUN, 0},
+    {NULL, NULL, NULL, 0, 1, -1, 0, 0}, // 7px etched separator row, like the stock menu
+    {L"Suspend", NULL, NULL, ICON_SUSPEND, 0, -1, SCMD_SUSPEND, 0},
 };
 #define START_N (sizeof(s_start) / sizeof(s_start[0]))
+
+// Cascade submenu state: s_nSubRoot = s_start[] index whose cascade is open (-1 = closed),
+// s_nSubSel = highlighted row inside it. s_nHoverSub tracks a cursor parked on a cascade
+// item so the submenu auto-opens after the stock ~400ms dwell. Declared here because the
+// geometry helpers below already reference them.
+static int s_nSubRoot = -1;
+static int s_nSubSel = -1;
+static int s_nHoverSub = -1;
+static DWORD s_dwHoverAt = 0;
+
+// Cascade item lists by SUB_* id (the stock shell fills these from folders).
+static const SHORTCUT *SubItems(int nSub, int *pn)
+{
+	switch (nSub)
+	{
+		case SUB_PROGRAMS:
+			*pn = (int)(sizeof(s_subPrograms) / sizeof(s_subPrograms[0]));
+			return s_subPrograms;
+		case SUB_FAVORITES:
+			*pn = (int)(sizeof(s_subFavorites) / sizeof(s_subFavorites[0]));
+			return s_subFavorites;
+		case SUB_DOCUMENTS:
+			*pn = (int)(sizeof(s_subDocuments) / sizeof(s_subDocuments[0]));
+			return s_subDocuments;
+		case SUB_SETTINGS:
+			*pn = (int)(sizeof(s_subSettings) / sizeof(s_subSettings[0]));
+			return s_subSettings;
+	}
+	*pn = 0;
+	return NULL;
+}
 
 // Width of the vertical "Windows CE" brand strip along the left edge of the open Start
 // menu (the stock ceshell bitmap, loaded as \Windows\startban.bmp). The stock shell gives
@@ -91,27 +183,32 @@ static int StartMenuStrip(void)
 	return nBanW;
 }
 
-// Total height of the Start menu's item area: SM_CYSMICON+6 rows plus SEP_H separator
-// rows (the stock layout adds a thin border around this).
-static int StartMenuContentH(void)
+// Total height of a menu's item area: SM_CYSMICON+6 rows plus SEP_H separator rows
+// (the stock layout adds a thin border around this). Works on the root s_start[] table
+// and on cascade lists alike - submenus share the stock row metrics, minus the banner.
+static int MenuContentH(const SHORTCUT *aItems, int nItems)
 {
 	int i, h = 0;
-	for (i = 0; i < (int)START_N; i++)
-		h += s_start[i].sep ? SEP_H : ROW_H;
+	for (i = 0; i < nItems; i++)
+		h += aItems[i].sep ? SEP_H : ROW_H;
 	return h;
+}
+static int StartMenuContentH(void)
+{
+	return MenuContentH(s_start, (int)START_N);
 }
 
 // Width of the item area = SM_CXSMICON(16) + max text width (clamped to 200, the stock
-// layout's 0xC8) + 16. The strip goes on the left of this.
-static int StartMenuItemW(void)
+// layout's 0xC8) + 16. The strip goes on the left of this (root menu only).
+static int MenuItemW(const SHORTCUT *aItems, int nItems)
 {
 	int i, w = 0;
-	for (i = 0; i < (int)START_N; i++)
+	for (i = 0; i < nItems; i++)
 	{
 		int t;
-		if (!s_start[i].label)
+		if (!aItems[i].label)
 			continue;
-		t = GfxTextWidth(g_FontUI, s_start[i].label);
+		t = GfxTextWidth(g_FontUI, aItems[i].label);
 		if (t > 200)
 			t = 200;
 		if (t > w)
@@ -119,19 +216,80 @@ static int StartMenuItemW(void)
 	}
 	return w + 32;
 }
+static int StartMenuItemW(void)
+{
+	return MenuItemW(s_start, (int)START_N);
+}
 
 // Content-relative y -> item index, -1 for separators/outside (rows are variable-height).
-static int StartItemAtY(int y)
+static int MenuItemAtY(const SHORTCUT *aItems, int nItems, int y)
 {
 	int i, yy = 0;
-	for (i = 0; i < (int)START_N; i++)
+	for (i = 0; i < nItems; i++)
 	{
-		int ih = s_start[i].sep ? SEP_H : ROW_H;
+		int ih = aItems[i].sep ? SEP_H : ROW_H;
 		if (y >= yy && y < yy + ih)
-			return s_start[i].sep ? -1 : i;
+			return aItems[i].sep ? -1 : i;
 		yy += ih;
 	}
 	return -1;
+}
+static int StartItemAtY(int y)
+{
+	return MenuItemAtY(s_start, (int)START_N, y);
+}
+
+// y of the top of item nIdx inside the content area (for submenu placement).
+static int MenuItemTop(const SHORTCUT *aItems, int nIdx)
+{
+	int i, y = 0;
+	for (i = 0; i < nIdx; i++)
+		y += aItems[i].sep ? SEP_H : ROW_H;
+	return y;
+}
+
+// --- cascade submenu geometry/state ---------------------------------------------
+// The open cascade hangs off its parent row on the root menu's right, overlapping the
+// frame by MENU_PAD (stock submenu windows cover the parent menu's right border, and
+// their top edge aligns with the parent item's row). No brand strip on submenus.
+static const SHORTCUT *SubOpenItems(int *pn)
+{
+	if (s_nSubRoot < 0 || s_nSubRoot >= (int)START_N || s_start[s_nSubRoot].sub < 0)
+	{
+		*pn = 0;
+		return NULL;
+	}
+	return SubItems(s_start[s_nSubRoot].sub, pn);
+}
+
+static void SubRect(RECT *prc)
+{
+	int n = 0, nStrip = StartMenuStrip(), nItemW = StartMenuItemW();
+	const SHORTCUT *a = SubOpenItems(&n);
+	int rr = 2 + MENU_PAD * 2 + nStrip + nItemW; // root menu's outer right edge
+	int ry = TASK_Y - StartMenuContentH() - MENU_PAD * 2;
+	int nTop = ry + MENU_PAD + MenuItemTop(s_start, s_nSubRoot) - MENU_PAD;
+	int w = a ? MenuItemW(a, n) + MENU_PAD * 2 : MENU_PAD * 2 + 8;
+	int h = a ? MenuContentH(a, n) + MENU_PAD * 2 : MENU_PAD * 2;
+	if (nTop + h > TASK_Y - 2) // keep it above the taskbar like a real popup
+		nTop = TASK_Y - 2 - h;
+	if (nTop < 2)
+		nTop = 2;
+	SetRect(prc, rr - MENU_PAD, nTop, rr - MENU_PAD + w, nTop + h);
+}
+
+static void OpenSub(int nRootIdx)
+{
+	s_nSubRoot = nRootIdx;
+	s_nSubSel = -1; // nothing highlighted until the cursor/keys pick a row
+	s_bDirty = 1;
+}
+static void CloseSub(void)
+{
+	s_nSubRoot = -1;
+	s_nSubSel = -1;
+	s_nHoverSub = -1;
+	s_bDirty = 1;
 }
 
 // --- right-click context menu (LT+A on the pad, or the DC mouse's right button) ---
@@ -141,7 +299,9 @@ enum
 	CTXC_DELETE,
 	CTXC_ARRANGE,
 	CTXC_REFRESH,
-	CTXC_DISPLAY
+	CTXC_DISPLAY,
+	CTXC_TASKMGR,
+	CTXC_TASKPROP
 };
 typedef struct
 {
@@ -152,6 +312,9 @@ static const CtxItem s_aCtxIconUser[] = {{L"Open", CTXC_OPEN}, {L"Delete", CTXC_
 static const CtxItem s_aCtxIconBuiltin[] = {{L"Open", CTXC_OPEN}};
 static const CtxItem s_aCtxDesktop[] = {
     {L"Arrange Icons", CTXC_ARRANGE}, {L"Refresh", CTXC_REFRESH}, {L"Properties", CTXC_DISPLAY}};
+// the stock ceshell MENU/109: right-click on the taskbar itself
+static const CtxItem s_aCtxTaskbar[] = {
+    {L"Task Manager...", CTXC_TASKMGR}, {L"Properties", CTXC_TASKPROP}};
 #define CTX_ROW_H 18
 #define CTX_W     128
 static const CtxItem *s_pCtxItems = NULL; // NULL = context menu closed
@@ -164,6 +327,18 @@ static int s_nDeskSel = 0;
 static int s_bMenuOpen = 0;
 static int s_nMenuSel = 0;
 static int s_bDirty = 1;
+static void CloseStartMenu(void); // Start menu + its cascade are one popup tree
+static void OpenRunDialog(void);    // "Run..." -> stock Run dialog
+static void OpenTaskbarDialog(void);// Settings -> Taskbar -> Taskbar Properties
+// the two Start-menu dialogs (implemented below, dispatched by s_nDlgKind)
+static void RunDlgOnKey(WPARAM wParam);
+static void RunDlgClick(int x, int y);
+static void RenderRunFills(void);
+static void RenderRunText(HDC hdc);
+static void TbDlgOnKey(WPARAM wParam);
+static void TbDlgClick(int x, int y);
+static void RenderTbFills(void);
+static void RenderTbText(HDC hdc);
 static int s_bDeskDirty = 1;   // static desktop-layer cache needs a (re)build
 static int s_nCachedSel = -1;  // s_nDeskSel baked into the desktop cache
 static int s_nCachedMenu = -1; // s_bMenuOpen baked into the desktop cache
@@ -515,6 +690,12 @@ static int s_cWall = 0;             // entry count (incl. "(None)")
 static int s_nCurWall = 0;          // committed wallpaper index + style (survive Cancel)
 static int s_nCurStyle = GFXWALL_STRETCH;
 static int s_bDlgOpen = 0; // the modal is up
+// Which modal owns s_bDlgOpen: the wallpaper dialog (stock "Display Properties"-style)
+// or the Start-menu dialogs.
+#define DLGK_DISPLAY 0
+#define DLGK_RUN     1
+#define DLGK_TASKBAR 2
+static int s_nDlgKind = DLGK_DISPLAY;
 static int s_nDlgSel = 0;  // focused control (0..DLG_CTL_N-1)
 static int s_nDlgWall = 0; // chosen wallpaper while the dialog is open
 static int s_nDlgStyle = GFXWALL_STRETCH;
@@ -626,6 +807,7 @@ static void CloseDisplayDialog(int bApply)
 	if (!bApply) // Cancel -> revert the live desktop to the committed choice
 		ApplyWall(s_nCurWall, s_nCurStyle);
 	s_bDlgOpen = 0;
+	s_nDlgKind = DLGK_DISPLAY;
 	s_nDdActive = -1;
 	s_bDirty = 1;
 	s_bDeskDirty = 1;
@@ -681,6 +863,7 @@ static void OpenDisplayDialog(void)
 	s_nDlgWall = (s_nCurWall >= 0 && s_nCurWall < s_cWall) ? s_nCurWall : 0;
 	s_nDlgStyle = s_nCurStyle;
 	s_nDlgSel = 0;
+	s_nDlgKind = DLGK_DISPLAY;
 	s_nDdActive = -1;
 	s_bDlgOpen = 1;
 	s_bDirty = 1;
@@ -688,6 +871,16 @@ static void OpenDisplayDialog(void)
 
 static void DlgOnKey(WPARAM wParam)
 {
+	if (s_nDlgKind == DLGK_RUN)
+	{
+		RunDlgOnKey(wParam);
+		return;
+	}
+	if (s_nDlgKind == DLGK_TASKBAR)
+	{
+		TbDlgOnKey(wParam);
+		return;
+	}
 	if (s_nDdActive >= 0) // a dropdown is open: navigate its items
 	{
 		int n = DdCount();
@@ -716,6 +909,16 @@ static void DlgOnKey(WPARAM wParam)
 static void DlgClick(int x, int y)
 {
 	int i;
+	if (s_nDlgKind == DLGK_RUN)
+	{
+		RunDlgClick(x, y);
+		return;
+	}
+	if (s_nDlgKind == DLGK_TASKBAR)
+	{
+		TbDlgClick(x, y);
+		return;
+	}
 	if (s_nDdActive >= 0) // dropdown open: a row picks, anywhere else closes it
 	{
 		RECT lr;
@@ -759,6 +962,16 @@ static void RenderDialogFills(void)
 	int x0, y0, mx, my, b;
 	if (!s_bDlgOpen)
 		return;
+	if (s_nDlgKind == DLGK_RUN)
+	{
+		RenderRunFills();
+		return;
+	}
+	if (s_nDlgKind == DLGK_TASKBAR)
+	{
+		RenderTbFills();
+		return;
+	}
 	x0 = (SCREEN_W - DLG_W) / 2;
 	y0 = (SCREEN_H - DLG_H) / 2;
 	SetRect(&rc, x0, y0, x0 + DLG_W, y0 + DLG_H);
@@ -807,6 +1020,16 @@ static void RenderDialogText(HDC hdc)
 	RECT cr;
 	if (!s_bDlgOpen)
 		return;
+	if (s_nDlgKind == DLGK_RUN)
+	{
+		RenderRunText(hdc);
+		return;
+	}
+	if (s_nDlgKind == DLGK_TASKBAR)
+	{
+		RenderTbText(hdc);
+		return;
+	}
 	x0 = (SCREEN_W - DLG_W) / 2;
 	y0 = (SCREEN_H - DLG_H) / 2;
 	GfxText(hdc, x0 + 8, y0 + 4, CL_WHITE, CL_TITLE, g_FontBold, L"Display Properties");
@@ -838,6 +1061,353 @@ static void RenderDialogText(HDC hdc)
 			        (i == s_nDdSel) ? CL_WHITE : CL_TEXT, (i == s_nDdSel) ? CL_SEL : CL_WHITE,
 			        g_FontUI, DdText(i)); // list box is white
 	}
+}
+
+//
+// "Run" dialog (stock DLG1003): icon + "Type the name of a program, folder, or
+// document, and Windows will open it for you." + an edit field + OK / Cancel /
+// Browse... laid out like the CE 2.x dialog (buttons stacked at the right).
+//
+#define RUN_W     300
+#define RUN_H     122
+#define RUN_CTL_N 4 // edit field, OK, Cancel, Browse...
+
+static WCHAR s_szRun[128];
+static int s_nRunLen = 0;
+
+static void OpenRunDialog(void)
+{
+	s_nDlgKind = DLGK_RUN;
+	s_nRunLen = 0;
+	s_szRun[0] = 0;
+	s_nDlgSel = 0; // focus lands in the edit field
+	s_nDdActive = -1;
+	s_bDlgOpen = 1;
+	s_bDirty = 1;
+}
+
+static void RunCtlRect(int i, RECT *pr)
+{
+	int x0 = (SCREEN_W - RUN_W) / 2, y0 = (SCREEN_H - RUN_H) / 2;
+	switch (i)
+	{
+		case 0:
+			SetRect(pr, x0 + 52, y0 + 72, x0 + 226, y0 + 90);
+			break; // edit
+		case 1:
+			SetRect(pr, x0 + 232, y0 + 26, x0 + 292, y0 + 46);
+			break; // OK
+		case 2:
+			SetRect(pr, x0 + 232, y0 + 50, x0 + 292, y0 + 70);
+			break; // Cancel
+		default:
+			SetRect(pr, x0 + 232, y0 + 74, x0 + 292, y0 + 94);
+			break; // Browse...
+	}
+}
+
+// VK -> edit-field character, unshifted US layout; 0 for non-text keys.
+static int RunChar(WPARAM wParam)
+{
+	if (wParam >= 'A' && wParam <= 'Z')
+		return (int)wParam + 32;
+	if (wParam >= '0' && wParam <= '9')
+		return (int)wParam;
+	switch (wParam)
+	{
+		case VK_SPACE:
+			return ' ';
+		case VK_OEM_MINUS:
+			return '-';
+		case VK_OEM_PLUS:
+			return '=';
+		case VK_OEM_4:
+			return '[';
+		case VK_OEM_6:
+			return ']';
+		case VK_OEM_5:
+			return '\\';
+		case VK_OEM_1:
+			return ';';
+		case VK_OEM_7:
+			return '\'';
+		case VK_OEM_3:
+			return '`';
+		case VK_OEM_COMMA:
+			return ',';
+		case VK_OEM_PERIOD:
+			return '.';
+		case VK_OEM_2:
+			return '/';
+	}
+	return 0;
+}
+
+static void RunActivate(void)
+{
+	switch (s_nDlgSel)
+	{
+		case 1: // OK -> run the typed command line
+			s_bDlgOpen = 0;
+			if (s_nRunLen > 0)
+				ShellLaunch(s_szRun);
+			break;
+		case 3: // Browse... -> the file explorer, like the real browse dialog
+			s_bDlgOpen = 0;
+			LaunchApp(L"dcwexp.exe", L"\\Windows");
+			break;
+		default:
+			s_bDlgOpen = 0;
+			break;
+	}
+	s_bDirty = 1;
+}
+
+static void RunDlgOnKey(WPARAM wParam)
+{
+	if (s_nDlgSel == 0) // edit focused: text input first
+	{
+		int ch = RunChar(wParam);
+		if (ch && s_nRunLen < 126)
+		{
+			s_szRun[s_nRunLen++] = (WCHAR)ch;
+			s_szRun[s_nRunLen] = 0;
+		}
+		else if (wParam == VK_BACK && s_nRunLen > 0)
+			s_szRun[--s_nRunLen] = 0;
+		else if (wParam == VK_DELETE)
+			s_nRunLen = 0, s_szRun[0] = 0;
+		else if (wParam == VK_RETURN)
+			RunActivate();
+		else if (wParam == VK_ESCAPE)
+			s_bDlgOpen = 0;
+		else if (wParam == VK_UP || wParam == VK_DOWN || wParam == VK_TAB)
+			s_nDlgSel = 1;
+		s_bDirty = 1;
+		return;
+	}
+	if (wParam == VK_UP && s_nDlgSel > 1)
+		s_nDlgSel--;
+	else if (wParam == VK_DOWN && s_nDlgSel < RUN_CTL_N - 1)
+		s_nDlgSel++;
+	else if (wParam == VK_RETURN)
+		RunActivate();
+	else if (wParam == VK_ESCAPE)
+		s_bDlgOpen = 0;
+	else if (wParam == VK_TAB)
+		s_nDlgSel = 0;
+	else if (RunChar(wParam) || wParam == VK_BACK) // typing jumps back into the field
+	{
+		s_nDlgSel = 0;
+		RunDlgOnKey(wParam);
+		return;
+	}
+	s_bDirty = 1;
+}
+
+static void RunDlgClick(int x, int y)
+{
+	int i;
+	for (i = 0; i < RUN_CTL_N; i++)
+	{
+		RECT cr;
+		RunCtlRect(i, &cr);
+		if (x >= cr.left && x < cr.right && y >= cr.top && y < cr.bottom)
+		{
+			s_nDlgSel = i;
+			if (i > 0)
+				RunActivate();
+			s_bDirty = 1;
+			return;
+		}
+	}
+}
+
+static void RenderRunFills(void)
+{
+	RECT rc;
+	int x0 = (SCREEN_W - RUN_W) / 2, y0 = (SCREEN_H - RUN_H) / 2, i;
+	SetRect(&rc, x0, y0, x0 + RUN_W, y0 + RUN_H);
+	GfxFill(rc.left, rc.top, rc.right, rc.bottom, CL_FACE);
+	GfxBevel(&rc, TRUE);
+	GfxFill(x0 + 2, y0 + 2, x0 + RUN_W - 2, y0 + 20, CL_TITLE); // title bar
+	GfxIconBig(ICON_RUN, x0 + 10, y0 + 30);
+	for (i = 1; i < RUN_CTL_N; i++)
+	{
+		RunCtlRect(i, &rc);
+		GfxFill(rc.left, rc.top, rc.right, rc.bottom, (i == s_nDlgSel) ? CL_SEL : CL_FACE);
+		GfxBevel(&rc, TRUE);
+	}
+	RunCtlRect(0, &rc); // sunken white edit field
+	GfxFill(rc.left, rc.top, rc.right, rc.bottom, CL_WHITE);
+	GfxBevel(&rc, FALSE);
+	if (s_nDlgSel == 0) // block caret at the end of the text (fills pass - no fills in GetDC)
+		GfxFill(rc.left + 4 + GfxTextWidth(g_FontUI, s_szRun), rc.top + 4,
+		        rc.left + 10 + GfxTextWidth(g_FontUI, s_szRun), rc.bottom - 4, CL_TEXT);
+}
+
+static void RenderRunText(HDC hdc)
+{
+	RECT cr;
+	int x0 = (SCREEN_W - RUN_W) / 2, y0 = (SCREEN_H - RUN_H) / 2;
+	GfxText(hdc, x0 + 8, y0 + 4, CL_WHITE, CL_TITLE, g_FontBold, L"Run");
+	GfxText(hdc, x0 + 52, y0 + 28, CL_TEXT, CL_FACE, g_FontUI,
+	        L"Type the name of a program, folder,");
+	GfxText(hdc, x0 + 52, y0 + 42, CL_TEXT, CL_FACE, g_FontUI,
+	        L"or document, and Windows will open it");
+	GfxText(hdc, x0 + 52, y0 + 56, CL_TEXT, CL_FACE, g_FontUI, L"for you.");
+	RunCtlRect(0, &cr);
+	GfxText(hdc, cr.left + 4, cr.top + 4, CL_TEXT, CL_WHITE, g_FontUI, s_szRun);
+	RunCtlRect(1, &cr);
+	GfxText(hdc, cr.left + 21, cr.top + 4, (s_nDlgSel == 1) ? CL_WHITE : CL_TEXT,
+	        (s_nDlgSel == 1) ? CL_SEL : CL_FACE, g_FontUI, L"OK");
+	RunCtlRect(2, &cr);
+	GfxText(hdc, cr.left + 9, cr.top + 4, (s_nDlgSel == 2) ? CL_WHITE : CL_TEXT,
+	        (s_nDlgSel == 2) ? CL_SEL : CL_FACE, g_FontUI, L"Cancel");
+	RunCtlRect(3, &cr);
+	GfxText(hdc, cr.left + 4, cr.top + 4, (s_nDlgSel == 3) ? CL_WHITE : CL_TEXT,
+	        (s_nDlgSel == 3) ? CL_SEL : CL_FACE, g_FontUI, L"Browse...");
+}
+
+//
+// "Taskbar Properties" (stock DLG108 / "Taskbar Options" tab): Always on top /
+// Auto hide / Show Clock checkboxes + OK / Cancel. The options are live: Auto hide
+// drops the taskbar to a 2px sliver until the cursor touches the bottom edge (or a
+// menu/dialog opens), Show Clock removes the tray clock.
+//
+#define TB_W      230
+#define TB_H      150
+#define TB_CTL_N  5 // Always on top, Auto hide, Show Clock, OK, Cancel
+#define TB_CHK_Y0 32
+#define TB_CHK_DY 22
+
+static int s_abTbDlg[3];                // working copies while the dialog is open
+static int s_bTbAlwaysTop = 1, s_bTbAutoHide = 0, s_bTbClock = 1; // committed options
+
+static void TbCtlRect(int i, RECT *pr)
+{
+	int x0 = (SCREEN_W - TB_W) / 2, y0 = (SCREEN_H - TB_H) / 2;
+	if (i < 3)
+		SetRect(pr, x0 + 12, y0 + TB_CHK_Y0 + i * TB_CHK_DY, x0 + TB_W - 12,
+		        y0 + TB_CHK_Y0 + i * TB_CHK_DY + 16);
+	else
+		SetRect(pr, x0 + (i == 3 ? 50 : 130), y0 + TB_H - 30, x0 + (i == 3 ? 100 : 180),
+		        y0 + TB_H - 10);
+}
+
+static void OpenTaskbarDialog(void)
+{
+	s_nDlgKind = DLGK_TASKBAR;
+	s_abTbDlg[0] = s_bTbAlwaysTop;
+	s_abTbDlg[1] = s_bTbAutoHide;
+	s_abTbDlg[2] = s_bTbClock;
+	s_nDlgSel = 0;
+	s_nDdActive = -1;
+	s_bDlgOpen = 1;
+	s_bDirty = 1;
+}
+
+static void TbActivate(void)
+{
+	if (s_nDlgSel < 3) // checkboxes toggle in place
+		s_abTbDlg[s_nDlgSel] = !s_abTbDlg[s_nDlgSel];
+	else if (s_nDlgSel == 3) // OK -> commit
+	{
+		s_bTbAlwaysTop = s_abTbDlg[0];
+		s_bTbAutoHide = s_abTbDlg[1];
+		s_bTbClock = s_abTbDlg[2];
+		s_bDlgOpen = 0;
+	}
+	else // Cancel
+		s_bDlgOpen = 0;
+	s_bDirty = 1;
+}
+
+static void TbDlgOnKey(WPARAM wParam)
+{
+	if (wParam == VK_UP && s_nDlgSel > 0)
+		s_nDlgSel--;
+	else if (wParam == VK_DOWN && s_nDlgSel < TB_CTL_N - 1)
+		s_nDlgSel++;
+	else if (wParam == VK_RETURN || wParam == VK_SPACE)
+		TbActivate();
+	else if (wParam == VK_ESCAPE)
+		s_bDlgOpen = 0;
+	s_bDirty = 1;
+}
+
+static void TbDlgClick(int x, int y)
+{
+	int i;
+	for (i = 0; i < TB_CTL_N; i++)
+	{
+		RECT cr;
+		TbCtlRect(i, &cr);
+		if (x >= cr.left && x < cr.right && y >= cr.top && y < cr.bottom)
+		{
+			s_nDlgSel = i;
+			TbActivate();
+			return;
+		}
+	}
+}
+
+static void RenderTbFills(void)
+{
+	RECT rc;
+	int x0 = (SCREEN_W - TB_W) / 2, y0 = (SCREEN_H - TB_H) / 2, i;
+	SetRect(&rc, x0, y0, x0 + TB_W, y0 + TB_H);
+	GfxFill(rc.left, rc.top, rc.right, rc.bottom, CL_FACE);
+	GfxBevel(&rc, TRUE);
+	GfxFill(x0 + 2, y0 + 2, x0 + TB_W - 2, y0 + 20, CL_TITLE);
+	for (i = 0; i < 3; i++) // checkbox frame (sunken white box)
+	{
+		TbCtlRect(i, &rc);
+		SetRect(&rc, rc.left + 2, rc.top + 2, rc.left + 14, rc.top + 14);
+		GfxFill(rc.left, rc.top, rc.right, rc.bottom, CL_WHITE);
+		GfxBevel(&rc, FALSE);
+		if (s_abTbDlg[i]) // check mark
+		{
+			GfxFill(rc.left + 3, rc.top + 6, rc.left + 6, rc.top + 10, CL_TEXT);
+			GfxFill(rc.left + 6, rc.top + 3, rc.left + 11, rc.top + 7, CL_TEXT);
+		}
+	}
+	for (i = 3; i < TB_CTL_N; i++)
+	{
+		TbCtlRect(i, &rc);
+		GfxFill(rc.left, rc.top, rc.right, rc.bottom, (i == s_nDlgSel) ? CL_SEL : CL_FACE);
+		GfxBevel(&rc, TRUE);
+	}
+}
+
+static void RenderTbText(HDC hdc)
+{
+	RECT cr;
+	static const WCHAR *const aOpts[3] = {L"Always on top", L"Auto hide", L"Show Clock"};
+	int x0 = (SCREEN_W - TB_W) / 2, y0 = (SCREEN_H - TB_H) / 2, i;
+	GfxText(hdc, x0 + 8, y0 + 4, CL_WHITE, CL_TITLE, g_FontBold, L"Taskbar Properties");
+	for (i = 0; i < 3; i++)
+	{
+		TbCtlRect(i, &cr);
+		GfxText(hdc, cr.left + 18, cr.top + 2, CL_TEXT, CL_FACE, g_FontUI, aOpts[i]);
+	}
+	TbCtlRect(3, &cr);
+	GfxText(hdc, cr.left + 16, cr.top + 4, (s_nDlgSel == 3) ? CL_WHITE : CL_TEXT,
+	        (s_nDlgSel == 3) ? CL_SEL : CL_FACE, g_FontUI, L"OK");
+	TbCtlRect(4, &cr);
+	GfxText(hdc, cr.left + 7, cr.top + 4, (s_nDlgSel == 4) ? CL_WHITE : CL_TEXT,
+	        (s_nDlgSel == 4) ? CL_SEL : CL_FACE, g_FontUI, L"Cancel");
+}
+
+// The taskbar is up unless Auto hide is on and nothing needs it: parked cursor at the
+// bottom edge, an open menu, a modal, or a context menu all reveal it (stock behavior).
+static int TaskbarUp(void)
+{
+	if (!s_bTbAutoHide)
+		return 1;
+	if (s_bMenuOpen || s_bDlgOpen || s_pCtxItems)
+		return 1;
+	return s_nCy >= SCREEN_H - 3;
 }
 
 //
@@ -893,8 +1463,14 @@ static void CloseContextMenu(void)
 static void OpenContextMenu(int x, int y)
 {
 	int k = DeskIconAt(x, y), h;
-	s_bMenuOpen = 0; // close the Start menu if it was open
-	if (k >= 0)
+	CloseStartMenu(); // close the Start menu if it was open
+	if (y >= TASK_Y) // stock ceshell MENU/109: right-click on the taskbar itself
+	{
+		s_nCtxIcon = -1;
+		s_pCtxItems = s_aCtxTaskbar;
+		s_nCtxCount = sizeof(s_aCtxTaskbar) / sizeof(s_aCtxTaskbar[0]);
+	}
+	else if (k >= 0)
 	{
 		s_nDeskSel = k;
 		s_nCtxIcon = k;
@@ -962,6 +1538,12 @@ static void ContextActivate(void)
 			break;
 		case CTXC_DISPLAY:
 			OpenDisplayDialog(); // wallpaper picker (the screensaver tab is a later phase)
+			break;
+		case CTXC_TASKMGR:
+			LaunchApp(L"dcwtask.exe", NULL); // MENU/109 -> Task Manager...
+			break;
+		case CTXC_TASKPROP:
+			OpenTaskbarDialog(); // MENU/109 -> Taskbar Properties
 			break;
 	}
 	s_bDirty = 1;
@@ -1147,6 +1729,11 @@ static void RenderTaskbarFills(void)
 {
 	RECT rc;
 
+	if (!TaskbarUp()) // Auto hide: a 2px sliver stays on the bottom edge (stock look)
+	{
+		GfxFill(0, SCREEN_H - 2, SCREEN_W, SCREEN_H, CL_FACE);
+		return;
+	}
 	GfxFill(0, TASK_Y, SCREEN_W, SCREEN_H, CL_FACE);
 	SetRect(&rc, 0, TASK_Y, SCREEN_W, SCREEN_H);
 	GfxBevel(&rc, TRUE);
@@ -1155,9 +1742,13 @@ static void RenderTaskbarFills(void)
 	GfxBevel(&rc, s_bMenuOpen ? FALSE : TRUE); // pressed while the menu is up
 	GfxIcon(ICON_START, 8, TASK_Y + 5);        // the CE flag, like the H/PC Start button
 
-	SetRect(&rc, SCREEN_W - 58, TASK_Y + 3, SCREEN_W - 4, SCREEN_H - 3); // sunken clock tray
-	GfxFill(rc.left, rc.top, rc.right, rc.bottom, CL_FACE);
-	GfxBevel(&rc, FALSE);
+	if (s_bTbClock) // Show Clock
+	{
+		SetRect(&rc, SCREEN_W - 58, TASK_Y + 3, SCREEN_W - 4,
+		        SCREEN_H - 3); // sunken clock tray
+		GfxFill(rc.left, rc.top, rc.right, rc.bottom, CL_FACE);
+		GfxBevel(&rc, FALSE);
+	}
 
 	if (s_pShared) // one button per open window (focused = pressed)
 	{
@@ -1201,8 +1792,44 @@ static void RenderTaskbarFills(void)
 				if (i == s_nMenuSel)
 					GfxFill(ix, y, ir, y + ih, CL_SEL);
 				GfxIcon(s_start[i].icon, ix + 4, y + 3);
+				if (s_start[i].sub >= 0) // cascade glyph (the stock menu's Marlett "4")
+				{
+					int d, ax = ir - 10, ay = y + (ih - 7) / 2;
+					COLORREF cl = (i == s_nMenuSel) ? CL_WHITE : CL_TEXT;
+					for (d = 0; d < 4; d++) // right-pointing arrowhead: 7/5/3/1px columns
+						GfxFill(ax + d, ay + d, ax + d + 1, ay + 7 - d, cl);
+				}
 			}
 			y += ih;
+		}
+		if (s_nSubRoot >= 0) // open cascade: plain item menu, no brand strip
+		{
+			RECT rs;
+			int n = 0, sx, sr, sy;
+			const SHORTCUT *a = SubOpenItems(&n);
+			SubRect(&rs);
+			GfxFill(rs.left, rs.top, rs.right, rs.bottom, CL_FACE);
+			GfxBevel(&rs, TRUE);
+			sx = rs.left + MENU_PAD;
+			sr = rs.right - MENU_PAD;
+			sy = rs.top + MENU_PAD;
+			for (i = 0; i < n; i++)
+			{
+				int ih = a[i].sep ? SEP_H : ROW_H;
+				if (a[i].sep)
+				{
+					GfxFill(sx, sy + 2, sr, sy + 3, RGB(128, 128, 128));
+					GfxFill(sx, sy + 3, sr, sy + 4, RGB(255, 255, 255));
+				}
+				else
+				{
+					if (i == s_nSubSel)
+						GfxFill(sx, sy, sr, sy + ih, CL_SEL);
+					if (!a[i].dis)
+						GfxIcon(a[i].icon, sx + 4, sy + 3);
+				}
+				sy += ih;
+			}
 		}
 	}
 }
@@ -1213,17 +1840,21 @@ static void RenderBarsText(HDC hdc)
 	WCHAR szClk[16];
 	int i;
 
-	GfxText(hdc, 28, TASK_Y + 5, CL_TEXT, CL_FACE, g_FontBold, L"Start");
-	GetLocalTime(&t);
-	{ // the H/PC tray shows 12-hour time: "3:07 PM"
-		int h12 = t.wHour % 12;
-		if (!h12)
-			h12 = 12;
-		wsprintfW(szClk, L"%d:%02d %s", h12, t.wMinute, t.wHour < 12 ? L"AM" : L"PM");
+	if (TaskbarUp())
+	{
+		GfxText(hdc, 28, TASK_Y + 5, CL_TEXT, CL_FACE, g_FontBold, L"Start");
+		GetLocalTime(&t);
+		{ // the H/PC tray shows 12-hour time: "3:07 PM"
+			int h12 = t.wHour % 12;
+			if (!h12)
+				h12 = 12;
+			wsprintfW(szClk, L"%d:%02d %s", h12, t.wMinute, t.wHour < 12 ? L"AM" : L"PM");
+		}
+		if (s_bTbClock)
+			GfxText(hdc, SCREEN_W - 54, TASK_Y + 5, CL_TEXT, CL_FACE, g_FontUI, szClk);
 	}
-	GfxText(hdc, SCREEN_W - 54, TASK_Y + 5, CL_TEXT, CL_FACE, g_FontUI, szClk);
 
-	if (s_pShared)
+	if (s_pShared && TaskbarUp())
 	{
 		int bx = 80, k;
 		for (k = 0; k < DCWIN_MAXWIN; k++)
@@ -1252,6 +1883,27 @@ static void RenderBarsText(HDC hdc)
 				        s_start[i].label);
 			}
 			y += ih;
+		}
+		if (s_nSubRoot >= 0) // open cascade labels
+		{
+			RECT rs;
+			int n = 0;
+			const SHORTCUT *a = SubOpenItems(&n);
+			SubRect(&rs);
+			y = rs.top + MENU_PAD;
+			for (i = 0; i < n; i++)
+			{
+				int ih = a[i].sep ? SEP_H : ROW_H;
+				if (!a[i].sep)
+				{
+					COLORREF fg = a[i].dis ? RGB(128, 128, 128)
+					                     : (i == s_nSubSel) ? CL_WHITE : CL_TEXT;
+					COLORREF bg = (i == s_nSubSel && !a[i].dis) ? CL_SEL : CL_FACE;
+					GfxText(hdc, rs.left + MENU_PAD + 24, y + (ih - 14) / 2, fg, bg,
+					        g_FontUI, a[i].label);
+				}
+				y += ih;
+			}
 		}
 	}
 }
@@ -1513,14 +2165,67 @@ static void Render(void)
 //
 // Input
 //
-static void ActivateStartItem(void)
+// Close the Start menu + any open cascade (the two are one popup tree).
+static void CloseStartMenu(void)
 {
-	const SHORTCUT *pShc = &s_start[s_nMenuSel];
 	s_bMenuOpen = 0;
+	s_nSubRoot = -1;
+	s_nSubSel = -1;
+	s_nHoverSub = -1;
+}
+
+// Run a shortcut's action (shared by root items, cascade items and desktop icons).
+static void ActivateShortcut(const SHORTCUT *pShc)
+{
+	if (pShc->dis)
+		return;
 	if (pShc->path)
 		LaunchApp(L"dcwexp.exe", pShc->path); // Explorer window at this path
 	else if (pShc->exe)
 		ShellLaunch(pShc->exe); // dcw* -> composited; others -> display hand-off
+	else
+		switch (pShc->cmd)
+		{
+			case SCMD_HELP:
+				LaunchApp(L"dcwexp.exe", L"\\Windows"); // browse the ROM dir (no help data)
+				break;
+			case SCMD_RUN:
+				OpenRunDialog();
+				break;
+			case SCMD_TASKBAROPT:
+				OpenTaskbarDialog();
+				break;
+			case SCMD_SUSPEND:
+				PostQuitMessage(0); // power down -> back to the DCWin loader
+				break;
+		}
+}
+
+static void ActivateSubItem(void)
+{
+	int n = 0;
+	const SHORTCUT *a = SubOpenItems(&n);
+	SHORTCUT it;
+	if (!a || s_nSubSel < 0 || s_nSubSel >= n || a[s_nSubSel].dis)
+		return;
+	it = a[s_nSubSel];
+	CloseStartMenu();
+	ActivateShortcut(&it);
+}
+
+static void ActivateStartItem(void)
+{
+	const SHORTCUT *pShc = &s_start[s_nMenuSel];
+	if (pShc->sub >= 0) // a cascade item opens/closes its submenu; it launches nothing
+	{
+		if (s_nSubRoot == s_nMenuSel)
+			CloseSub();
+		else
+			OpenSub(s_nMenuSel);
+		return;
+	}
+	CloseStartMenu();
+	ActivateShortcut(pShc);
 }
 
 static void OnKey(WPARAM wParam)
@@ -1553,8 +2258,13 @@ static void OnKey(WPARAM wParam)
 	{
 		if (CountWindows() == 0)
 		{
-			s_bMenuOpen = !s_bMenuOpen;
-			s_nMenuSel = 0;
+			if (s_bMenuOpen)
+				CloseStartMenu();
+			else
+			{
+				s_bMenuOpen = 1;
+				s_nMenuSel = 0;
+			}
 		}
 		else
 			CycleFocus();
@@ -1584,14 +2294,56 @@ static void OnKey(WPARAM wParam)
 
 	if (s_bMenuOpen)
 	{
+		if (s_nSubRoot >= 0) // keys drive the open cascade while it is up
+		{
+			int nSub = 0;
+			const SHORTCUT *aSub = SubOpenItems(&nSub);
+			if (wParam == VK_LEFT || wParam == VK_ESCAPE)
+				CloseSub();
+			else if (aSub && (wParam == VK_UP || wParam == VK_DOWN))
+			{
+				// bounded walk: an all-disabled list ("(Empty)") has nowhere to go
+				int d = (wParam == VK_UP) ? -1 : 1, s = s_nSubSel, k;
+				for (k = 0; k < nSub; k++)
+				{
+					s += d;
+					if (s < 0)
+						s = nSub - 1;
+					if (s >= nSub)
+						s = 0;
+					if (!aSub[s].sep && !aSub[s].dis)
+					{
+						s_nSubSel = s;
+						break;
+					}
+				}
+			}
+			else if (wParam == VK_RETURN)
+				ActivateSubItem();
+			s_bDirty = 1;
+			return;
+		}
 		if (wParam == VK_UP && s_nMenuSel > 0)
 			do { s_nMenuSel--; } while (s_nMenuSel > 0 && s_start[s_nMenuSel].sep);
 		if (wParam == VK_DOWN && s_nMenuSel < (int)START_N - 1)
 			do { s_nMenuSel++; } while (s_nMenuSel < (int)START_N - 1 && s_start[s_nMenuSel].sep);
+		if (wParam == VK_RIGHT && s_start[s_nMenuSel].sub >= 0)
+		{
+			int n = 0;
+			const SHORTCUT *a = SubItems(s_start[s_nMenuSel].sub, &n);
+			int s;
+			OpenSub(s_nMenuSel);
+			for (s = 0; s < n; s++) // land on the first selectable row
+				if (!a[s].sep && !a[s].dis)
+				{
+					s_nSubSel = s;
+					break;
+				}
+		}
 		if (wParam == VK_RETURN)
 			ActivateStartItem();
 		if (wParam == VK_ESCAPE)
-			s_bMenuOpen = 0;
+			CloseStartMenu();
 		s_bDirty = 1;
 		return;
 	}
@@ -1693,6 +2445,24 @@ static int HandleClick(int x, int y)
 		int nContH = StartMenuContentH(), my = TASK_Y - nContH - MENU_PAD * 2;
 		int ix = 2 + MENU_PAD + nStrip, ir = ix + nItemW, cy0 = my + MENU_PAD;
 		int nRow;
+		if (s_nSubRoot >= 0) // the open cascade is topmost: hit-test it first
+		{
+			RECT rs;
+			int n = 0;
+			const SHORTCUT *a = SubOpenItems(&n);
+			SubRect(&rs);
+			if (x >= rs.left && x < rs.right && y >= rs.top + MENU_PAD &&
+			    y < rs.bottom - MENU_PAD)
+			{
+				nRow = MenuItemAtY(a, n, y - (rs.top + MENU_PAD));
+				if (nRow >= 0 && !a[nRow].dis)
+				{
+					s_nSubSel = nRow;
+					ActivateSubItem();
+				}
+				return 1; // clicks inside the submenu don't dismiss the menu tree
+			}
+		}
 		// the brand strip itself isn't clickable - a click there dismisses, like stock CE
 		if (x >= ix && x < ir && y >= cy0 && y < cy0 + nContH)
 		{
@@ -1700,20 +2470,25 @@ static int HandleClick(int x, int y)
 			if (nRow >= 0)
 			{
 				s_nMenuSel = nRow;
-				ActivateStartItem();
+				ActivateStartItem(); // cascade items open their submenu here
 			}
 			return 1; // a click inside the menu (separator/strip zone) doesn't dismiss
 		}
-		s_bMenuOpen = 0; // click elsewhere closes the menu
+		CloseStartMenu(); // click elsewhere closes the menu
 		return 1;
 	}
-	if (y >= TASK_Y && x >= 4 && x < 72) // Start button
+	if (y >= TASK_Y && TaskbarUp() && x >= 4 && x < 72) // Start button
 	{
-		s_bMenuOpen = !s_bMenuOpen;
-		s_nMenuSel = 0;
+		if (s_bMenuOpen)
+			CloseStartMenu();
+		else
+		{
+			s_bMenuOpen = 1;
+			s_nMenuSel = 0;
+		}
 		return 1;
 	}
-	if (y >= TASK_Y && s_pShared) // taskbar window buttons
+	if (y >= TASK_Y && TaskbarUp() && s_pShared) // taskbar window buttons
 	{
 		int bx = 80;
 		for (k = 0; k < DCWIN_MAXWIN; k++)
@@ -2167,7 +2942,26 @@ int WINAPI WinMain(HINSTANCE hInst, HINSTANCE hPrev, LPWSTR lpszCmd, int nShow)
 					int nStrip = StartMenuStrip(), nItemW = StartMenuItemW();
 					int nContH = StartMenuContentH(), my = TASK_Y - nContH - MENU_PAD * 2;
 					int ix = 2 + MENU_PAD + nStrip, ir = ix + nItemW, cy0 = my + MENU_PAD;
-					if (s_nCx >= ix && s_nCx < ir &&
+					int bInSub = 0;
+					if (s_nSubRoot >= 0)
+					{
+						RECT rs;
+						int n = 0, nRow;
+						const SHORTCUT *a = SubOpenItems(&n);
+						SubRect(&rs);
+						if (s_nCx >= rs.left && s_nCx < rs.right && s_nCy >= rs.top + MENU_PAD &&
+						    s_nCy < rs.bottom - MENU_PAD)
+						{
+							bInSub = 1;
+							nRow = MenuItemAtY(a, n, s_nCy - (rs.top + MENU_PAD));
+							if (nRow >= 0 && !a[nRow].dis && nRow != s_nSubSel)
+							{
+								s_nSubSel = nRow;
+								s_bDirty = 1;
+							}
+						}
+					}
+					if (!bInSub && s_nCx >= ix && s_nCx < ir &&
 					    s_nCy >= cy0 && s_nCy < cy0 + nContH)
 					{
 						int nRow = StartItemAtY(s_nCy - cy0);
@@ -2176,7 +2970,25 @@ int WINAPI WinMain(HINSTANCE hInst, HINSTANCE hPrev, LPWSTR lpszCmd, int nShow)
 							s_nMenuSel = nRow;
 							s_bDirty = 1;
 						}
+						// parked on a cascade item -> arm the stock ~400ms auto-open; moving
+						// to any other row closes the open submenu immediately.
+						if (nRow >= 0 && s_start[nRow].sub >= 0)
+						{
+							if (s_nHoverSub != nRow)
+							{
+								s_nHoverSub = nRow;
+								s_dwHoverAt = GetTickCount();
+							}
+						}
+						else
+						{
+							s_nHoverSub = -1;
+							if (s_nSubRoot >= 0 && nRow != s_nSubRoot)
+								CloseSub();
+						}
 					}
+					else if (!bInSub)
+						s_nHoverSub = -1;
 				}
 				else if (bMoved && !s_pCtxItems && !s_bDlgOpen && !s_bMenuOpen &&
 				         !PointOverWindow(s_nCx, s_nCy))
@@ -2189,6 +3001,12 @@ int WINAPI WinMain(HINSTANCE hInst, HINSTANCE hPrev, LPWSTR lpszCmd, int nShow)
 					}
 				}
 			}
+			// Cascade auto-open: a cursor parked on a Programs/Favorites/Documents/Settings
+			// row opens its submenu after the stock ~400ms dwell (clicks + RIGHT-arrow
+			// open it instantly; this only covers the hover path).
+			if (s_bMenuOpen && s_nHoverSub >= 0 && s_nHoverSub != s_nSubRoot &&
+			    GetTickCount() - s_dwHoverAt > 400)
+				OpenSub(s_nHoverSub);
 			// Pointer press / drag / release. A press that doesn't drag is a CLICK on release
 			// (preserving the old click + controller-activate behaviour); a press that grabs a
 			// title bar / window corner / desktop icon and then moves becomes a drag.
@@ -2224,7 +3042,7 @@ int WINAPI WinMain(HINSTANCE hInst, HINSTANCE hPrev, LPWSTR lpszCmd, int nShow)
 						if (s_nCy < TASK_Y &&
 						    (s_nCy < nTop || s_nCx >= nRight)) // dropped on the desktop
 							AddDesktopShortcut(s_nDragTarget, s_nCx, s_nCy);
-						s_bMenuOpen = 0;
+						CloseStartMenu();
 					}
 					else if (s_nDragKind == DRAG_ICON && s_nDragTarget >= 0 &&
 					         s_nDragTarget < s_cDesk)

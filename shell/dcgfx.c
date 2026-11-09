@@ -161,6 +161,17 @@ static const WCHAR *const s_aIcoName[ICON_COUNT] = {
     L"bin",        // ICON_BIN
     L"net",        // ICON_NET
     L"power",      // ICON_POWER
+    L"programs",   // ICON_PROGRAMS
+    L"favorites",  // ICON_FAVORITES
+    L"documents",  // ICON_DOCUMENTS
+    L"settings",   // ICON_SETTINGS
+    L"help",       // ICON_HELP
+    L"run",        // ICON_RUN
+    L"suspend",    // ICON_SUSPEND
+    L"controlpanel", // ICON_CPL
+    L"taskbar",    // ICON_TASKBAR
+    L"explorer",   // ICON_EXPLORER
+    L"cmdprompt",  // ICON_CMD
 };
 
 // 16x16 icons as ASCII art (' ' = transparent).
@@ -208,6 +219,50 @@ static const char *s_aIconArt[ICON_COUNT][16] = {
     {// ICON_POWER - power plug
      "", "      KK", "     KWWK", "    KWWK", "   KWWK", "  KKWK", " KWWK", "KWWK",
      "KWK", "KK", "", "", "", "", "", ""},
+    {// ICON_PROGRAMS - window w/ four app tiles
+     "", "  oKKKKKKKKKK", " oYKggggggggK", "oYYKgggggggKK", "oYKgggggggKKK",
+     "YKg KKKKKKKKKK", "YKg KBrrgbBBbK", "YKg KBrrgbBBbK", "YKg KBrrgbBBbK",
+     "YKg KBYYgYBBYK", "YKg KKKKKKKKKK", " YKgggggggggK", "  KKKKKKKKKK", "", "", ""},
+    {// ICON_FAVORITES - folder w/ blue star
+     "", "", "  ooo", " oYYYo", "oYYYYYoooooo", "oYYYYYYYYYYo", "oYYYYBYYYYYo",
+     "oYYBBBBBYYYo", "oYYYYBYYYYYo", "oYYBYYYYBYWo", "oYYYYYYYYYYo", "oooooooooooo",
+     "", "", "", ""},
+    {// ICON_DOCUMENTS - folder w/ pages
+     "", "", "  WWWWW", " oYYWKoWWW", "oYYYYYWKoWWo", "oYYYYYYYYYYo", "oYYYYYYYYYYo",
+     "oYYYYYYYYYYo", "oYYYYYYYYYYo", "oYYYYYYYYYYo", "oYYYYYYYYYYo", "oooooooooooo",
+     "", "", "", ""},
+    {// ICON_SETTINGS - window w/ gear
+     "", "  KKKKKKKKK", " KWWWWWWWWK", " KWKKKKKKWK", " KWK KKK KWK",
+     " KWKKYYYK KWK", " KWKYYKYYKWK", " KWKKYKYYKWK", " KWKYYKYYKWK", " KWKKYYYKWK",
+     " KKKKKKKKKK", "    YYKYY", "", "", "", ""},
+    {// ICON_HELP - book w/ ?
+     "", "   KKKKKK", "  KrrrrrKK", " KrrrrrrrK", " KrKKKrKKKrK", " KrrrrKrrrK",
+     " KrrrKKrrrK", " KrrrrKrrrK", " KrrrrKrrrK", " KrrrrrrrrK", "  KKKKKKKK",
+     "   KWWWWK", "", "", "", ""},
+    {// ICON_RUN - hourglass + window
+     "", " KKKKKKKKKKK", " KBBBBBBBBBK", " KKKKKKKKKKK", " KWWWWWWWWWK",
+     "  KKKK  KKK", "   KrK   KrK", "   KrrK KrrK", "   KrK   KrK",
+     "  KKKK   KKK", " KWWWWK KWWWK", " KKKKKK KKKK", "", "", "", ""},
+    {// ICON_SUSPEND - PC w/ moon screen
+     "", "  KKKKKKKKK", " KGGGGGGGGK", " KGKKKKKKKGK", " KGKBBBYKGK",
+     " KGKBBBYYGK", " KGKBBBYKGK", " KGKBBBKGGK", " KGKKKKKKKGK", " KGGGGGGGGK",
+     "  KKKKKKKKK", "", "", "", "", ""},
+    {// ICON_CPL - folder w/ tools
+     "", "", "  ooo", " oYYYo", "oYYYYYoooooo", "oYYKKKKKKYYo", "oYYKrKKgKYYo",
+     "oYYYKggKKYYo", "oYYKKKKrKYYo", "oYYgKKKKKYYo", "oYYYYYYYYYYo", "oooooooooooo",
+     "", "", "", ""},
+    {// ICON_TASKBAR - mini taskbar + flag
+     "", " K", " KrrgYYbB", " KrrggYYbbBB", " KggYYbbBBrr", " KYYbbBBrrgg",
+     " KbbBBrrggYY", " KBBrrggYYbb", " KKKKKKKKKKK", " KLLLLLLLLLK", " KKKBKKKKBKK",
+     " KLLLLLLLLLK", " KKKKKKKKKKK", "", "", ""},
+    {// ICON_EXPLORER - window + magnifier
+     "", "  KKKKKKKK", " KBBBBBBBK", " KKKKKKKKK", " KWWWKKKWWK", " KWWKBBBKWK",
+     " KWKBBBBBKKK", " KWKBBBBBKKKK", " KWKKBBBKKKKK", " KWWKKKWKKKK",
+     " KKKKKKKKK KKK", "", "", "", "", ""},
+    {// ICON_CMD - console window
+     "", "  KKKKKKKKKK", " KBBBBBBBBBK", " KKKKKKKKKKK", " KWWWWWWWWWK",
+     " KWKWWWWWWWK", " KWWSWWWWWWK", " KWWWWWWWWWK", " KWWWWWWWWWK", " KWWWWWWWWWK",
+     " KKKKKKKKKKK", "", "", "", "", ""},
 };
 
 static COLORREF PalColor(char c)

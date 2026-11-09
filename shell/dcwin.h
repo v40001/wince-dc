@@ -35,7 +35,18 @@
 #define ICON_BIN      10 // Recycle Bin
 #define ICON_NET      11 // network connections
 #define ICON_POWER    12 // power plug (Suspend / Shut Down)
-#define ICON_COUNT    13
+#define ICON_PROGRAMS 13 // Start-menu Programs (window w/ app tiles)
+#define ICON_FAVORITES 14 // Start-menu Favorites (folder w/ star)
+#define ICON_DOCUMENTS 15 // Start-menu Documents (folder w/ pages)
+#define ICON_SETTINGS 16 // Start-menu Settings (gear)
+#define ICON_HELP     17 // Start-menu Help (book w/ ?)
+#define ICON_RUN      18 // Start-menu Run... (hourglass + window)
+#define ICON_SUSPEND  19 // Start-menu Suspend (PC w/ moon screen)
+#define ICON_CPL      20 // Settings -> Control Panel (folder w/ tools)
+#define ICON_TASKBAR  21 // Settings -> Taskbar (mini taskbar + flag)
+#define ICON_EXPLORER 22 // Windows Explorer (window + magnifier)
+#define ICON_CMD      23 // Command Prompt (console window)
+#define ICON_COUNT    24
 
 typedef struct
 {

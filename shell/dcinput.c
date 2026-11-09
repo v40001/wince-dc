@@ -85,6 +85,21 @@ static void Push(DWORD dwVk)
 	}
 }
 
+// Win32 OEM VKs for the punctuation keys; CE 2.12's winuser.h doesn't ship them.
+#ifndef VK_OEM_1
+#define VK_OEM_1      0xBA
+#define VK_OEM_PLUS   0xBB
+#define VK_OEM_COMMA  0xBC
+#define VK_OEM_MINUS  0xBD
+#define VK_OEM_PERIOD 0xBE
+#define VK_OEM_2      0xBF
+#define VK_OEM_3      0xC0
+#define VK_OEM_4      0xDB
+#define VK_OEM_5      0xDC
+#define VK_OEM_6      0xDD
+#define VK_OEM_7      0xDE
+#endif
+
 static const struct
 {
 	int dik;
@@ -110,7 +125,45 @@ static const struct
     {DIK_7, '7', 0},
     {DIK_8, '8', 0},
     {DIK_9, '9', 0},
+    // full US alpha + punctuation, so shell dialogs (Run...) can take typed input
+    {DIK_A, 'A', 0},
+    {DIK_B, 'B', 0},
     {DIK_C, 'C', 0},
+    {DIK_D, 'D', 0},
+    {DIK_E, 'E', 0},
+    {DIK_F, 'F', 0},
+    {DIK_G, 'G', 0},
+    {DIK_H, 'H', 0},
+    {DIK_I, 'I', 0},
+    {DIK_J, 'J', 0},
+    {DIK_K, 'K', 0},
+    {DIK_L, 'L', 0},
+    {DIK_M, 'M', 0},
+    {DIK_N, 'N', 0},
+    {DIK_O, 'O', 0},
+    {DIK_P, 'P', 0},
+    {DIK_Q, 'Q', 0},
+    {DIK_R, 'R', 0},
+    {DIK_S, 'S', 0},
+    {DIK_T, 'T', 0},
+    {DIK_U, 'U', 0},
+    {DIK_V, 'V', 0},
+    {DIK_W, 'W', 0},
+    {DIK_X, 'X', 0},
+    {DIK_Y, 'Y', 0},
+    {DIK_Z, 'Z', 0},
+    {DIK_SPACE, VK_SPACE, 0},
+    {DIK_MINUS, VK_OEM_MINUS, 0},
+    {DIK_EQUALS, VK_OEM_PLUS, 0},
+    {DIK_LBRACKET, VK_OEM_4, 0},
+    {DIK_RBRACKET, VK_OEM_6, 0},
+    {DIK_BACKSLASH, VK_OEM_5, 0},
+    {DIK_SEMICOLON, VK_OEM_1, 0},
+    {DIK_APOSTROPHE, VK_OEM_7, 0},
+    {DIK_GRAVE, VK_OEM_3, 0},
+    {DIK_COMMA, VK_OEM_COMMA, 0},
+    {DIK_PERIOD, VK_OEM_PERIOD, 0}, // NOT '.': VK_DELETE is also 0x2E
+    {DIK_SLASH, VK_OEM_2, 0},
 };
 #define NMAP (sizeof(g_aMap) / sizeof(g_aMap[0]))
 
