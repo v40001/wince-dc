@@ -508,8 +508,10 @@ static int IcoAtlasCell(int id, int nDim, BYTE *pAb, int nAp)
 	if (pb && ReadFile(hf, pb, dwSize, &dwRead, NULL) && dwRead == dwSize &&
 	    IcoTo4444(pb, dwSize, nDim, awPx))
 	{
-		cx = (nDim == 16) ? id * 16 : id * 32;
-		cy = (nDim == 16) ? 144 : 160;
+		// 32px cells would overflow ATLAS_DIM(512) in a single row (ICON_COUNT*32 > 512),
+		// so they live in a 16-column grid: rows at y=160,192,224...
+		cx = (nDim == 16) ? id * 16 : (id % 16) * 32;
+		cy = (nDim == 16) ? 144 : 160 + (id / 16) * 32;
 		for (y = 0; y < nDim; y++)
 			for (x = 0; x < nDim; x++)
 				*((WORD *)(pAb + (cy + y) * nAp) + (cx + x)) = awPx[y * nDim + x];
@@ -571,8 +573,9 @@ static void BuildAtlas(void)
 	for (id = 0; id < ICON_COUNT; id++)
 		for (scale = 1; scale <= 2; scale++)
 		{
-			int dim = 16 * scale, cx = (scale == 1) ? id * 16 : id * 32,
-			    cy = (scale == 1) ? 144 : 160;
+			int dim = 16 * scale,
+			    cx = (scale == 1) ? id * 16 : (id % 16) * 32,
+			    cy = (scale == 1) ? 144 : 160 + (id / 16) * 32;
 			RectUV *pU = &s_aIconUV[id][scale - 1];
 			pU->u0 = cx / (float)ATLAS_DIM;
 			pU->v0 = cy / (float)ATLAS_DIM;
