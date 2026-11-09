@@ -23,14 +23,24 @@ jobs:
       - name: Build disc image
         run: cmake --build build --target gdi
 
-      - name: Upload image artifacts
+      # ROM images upload even when the gdi step fails (it's the last thing to break).
+      - name: Upload ROM image artifacts
+        if: always()
         uses: actions/upload-artifact@v4
         with:
           name: wince-dc-image
           path: |
+            build/0winceos.bin
+            build/0winceoshtml.bin
+            build/image/NK.bin
+          if-no-files-found: warn
+
+      - name: Upload disc artifacts
+        uses: actions/upload-artifact@v4
+        with:
+          name: wince-dc-disc
+          path: |
             build/disc/disc.gdi
             build/disc/track*.bin
             build/disc/track*.raw
-            build/0winceos.bin
-            build/0winceoshtml.bin
           if-no-files-found: error
