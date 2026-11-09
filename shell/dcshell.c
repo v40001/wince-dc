@@ -18,7 +18,7 @@
 #include "vmustore.h"
 
 #define TASK_H     26
-#define ROW_H      40 // Start-menu row height (the stock CE menu is a touch UI: ~44px rows)
+#define ROW_H      32 // Start-menu row height
 #define TASK_Y     (SCREEN_H - TASK_H)
 #define MENU_W     168
 
