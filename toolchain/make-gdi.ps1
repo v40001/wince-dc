@@ -61,7 +61,7 @@ Copy-Item "$Utils\Half-Life.GDI" $gdi -Force
 $bgArgs = @('-data', $data, '-ip', $ipBin, '-output', $OutDir, '-gdi', $gdi, '-V', 'WINCE')
 if (-not $Full) { $bgArgs += '-truncate' }
 Write-Host ("buildgdi: {0} data track" -f ($(if ($Full) {'FULL padded'} else {'truncated (sparse)'})))
-& "$Utils\buildgdi.exe" @bgArgs | Out-Null
+& "$Utils\buildgdi.exe" @bgArgs
 if (-not (Test-Path (Join-Path $OutDir "track03.bin"))) { throw "buildgdi did not produce track03.bin" }
 
 # Parse the GDI for the track1/2 LBAs, synthesize standard low-density filler.
