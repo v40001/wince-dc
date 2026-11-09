@@ -2656,7 +2656,7 @@ static void OnKey(WPARAM wParam)
 		return;
 	}
 
-	// desktop - grid navigation (column-major: index = col*rows + row)
+	// desktop - grid navigation (row-major: index = row*cols + col)
 	s_bDirty = 1;
 	if (s_nDeskSel < 0) // nothing selected (pointer last moved over empty desktop)
 	{
@@ -2665,15 +2665,15 @@ static void OnKey(WPARAM wParam)
 		return;
 	}
 	{
-		int nRow = s_nDeskSel % s_nDeskRows;
-		if (wParam == VK_UP && nRow > 0)
+		int nCol = s_nDeskSel % s_nDeskCols;
+		if (wParam == VK_LEFT && nCol > 0)
 			s_nDeskSel--;
-		if (wParam == VK_DOWN && nRow < s_nDeskRows - 1 && s_nDeskSel + 1 < s_cDesk)
+		if (wParam == VK_RIGHT && nCol < s_nDeskCols - 1 && s_nDeskSel + 1 < s_cDesk)
 			s_nDeskSel++;
-		if (wParam == VK_LEFT && s_nDeskSel - s_nDeskRows >= 0)
-			s_nDeskSel -= s_nDeskRows;
-		if (wParam == VK_RIGHT && s_nDeskSel + s_nDeskRows < s_cDesk)
-			s_nDeskSel += s_nDeskRows;
+		if (wParam == VK_UP && s_nDeskSel - s_nDeskCols >= 0)
+			s_nDeskSel -= s_nDeskCols;
+		if (wParam == VK_DOWN && s_nDeskSel + s_nDeskCols < s_cDesk)
+			s_nDeskSel += s_nDeskCols;
 	}
 	if (wParam == VK_DELETE)
 	{
