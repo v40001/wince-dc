@@ -571,7 +571,14 @@ static void BuildAtlas(void)
 				{
 					int idx = f * GN + c;
 					WCHAR ch = (WCHAR)(GFIRST + c);
-					ExtTextOutW(hdc, (idx % nCols) * 16, (idx / nCols) * 16, 0, NULL, &ch, 1, NULL);
+					RECT rcC;
+					rcC.left = (idx % nCols) * 16;
+					rcC.top = (idx / nCols) * 16;
+					rcC.right = rcC.left + 16;
+					rcC.bottom = rcC.top + 16;
+					// clip to the cell: glyphs with a negative left bearing ('j',
+					// 'A', '/') spill ink into the previous cell otherwise
+					ExtTextOutW(hdc, rcC.left, rcC.top, ETO_CLIPPED, &rcC, &ch, 1, NULL);
 				}
 			}
 			IDirectDrawSurface_ReleaseDC(pTmp, hdc);
@@ -921,12 +928,20 @@ void GfxFill(int left, int top, int right, int bottom, COLORREF color)
 
 void GfxBevel(const RECT *rc, BOOL raised)
 {
-	COLORREF tl = raised ? RGB(255, 255, 255) : RGB(128, 128, 128);
-	COLORREF br = raised ? RGB(128, 128, 128) : RGB(255, 255, 255);
-	GfxFill(rc->left, rc->top, rc->right, rc->top + 1, tl);
-	GfxFill(rc->left, rc->top, rc->left + 1, rc->bottom, tl);
-	GfxFill(rc->left, rc->bottom - 1, rc->right, rc->bottom, br);
-	GfxFill(rc->right - 1, rc->top, rc->right, rc->bottom, br);
+	// DrawEdge EDGE_RAISED/EDGE_SUNKEN: two bands, outer (TL hilight/BR dkshadow)
+	// then inner (TL 3dlight/BR 3dshadow); the stock CE control look
+	COLORREF tl1 = raised ? RGB(255, 255, 255) : RGB(128, 128, 128);
+	COLORREF br1 = raised ? RGB(0, 0, 0) : RGB(255, 255, 255);
+	COLORREF tl2 = raised ? RGB(223, 223, 223) : RGB(0, 0, 0);
+	COLORREF br2 = raised ? RGB(128, 128, 128) : RGB(223, 223, 223);
+	GfxFill(rc->left, rc->top, rc->right, rc->top + 1, tl1);
+	GfxFill(rc->left, rc->top, rc->left + 1, rc->bottom, tl1);
+	GfxFill(rc->left, rc->bottom - 1, rc->right, rc->bottom, br1);
+	GfxFill(rc->right - 1, rc->top, rc->right, rc->bottom, br1);
+	GfxFill(rc->left + 1, rc->top + 1, rc->right - 1, rc->top + 2, tl2);
+	GfxFill(rc->left + 1, rc->top + 1, rc->left + 2, rc->bottom - 1, tl2);
+	GfxFill(rc->left + 1, rc->bottom - 2, rc->right - 1, rc->bottom - 1, br2);
+	GfxFill(rc->right - 2, rc->top + 1, rc->right - 1, rc->bottom - 1, br2);
 }
 
 void GfxIcon(int id, int x, int y)
@@ -1068,9 +1083,9 @@ BOOL GfxPresent(int cursorX, int cursorY, BOOL showCursor)
 
 	if (showCursor) // cursor = ICON_CURSOR quad, drawn last (top)
 	{
-		RectUV *pU = &s_aIconUV[ICON_CURSOR][0];
+		RectUV *pU = &s_aIconUV[ICON_CURSOR][1]; // the stock CE arrow is 32x32
 		float x1, y1;
-		// Clamp the hotspot on-screen and clip the 16x16 sprite to the screen so the pointer
+		// Clamp the hotspot on-screen and clip the 32x32 sprite to the screen so the pointer
 		// never draws past the edges (the arrow's tip is the top-left hotspot, so it can sit
 		// right at an edge; we just don't extend the quad beyond the framebuffer).
 		if (cursorX < 0)
@@ -1081,16 +1096,16 @@ BOOL GfxPresent(int cursorX, int cursorY, BOOL showCursor)
 			cursorY = 0;
 		else if (cursorY > SCREEN_H - 1)
 			cursorY = SCREEN_H - 1;
-		x1 = (float)(cursorX + 16);
+		x1 = (float)(cursorX + 32);
 		if (x1 > SCREEN_W)
 			x1 = SCREEN_W;
-		y1 = (float)(cursorY + 16);
+		y1 = (float)(cursorY + 32);
 		if (y1 > SCREEN_H)
 			y1 = SCREEN_H;
 		PushQuad((float)cursorX, (float)cursorY, x1, y1, pU->u0, pU->v0,
 		         pU->u0 +
-		             (pU->u1 - pU->u0) * (x1 - cursorX) / 16.0f, // scale UV to the clipped extent
-		         pU->v0 + (pU->v1 - pU->v0) * (y1 - cursorY) / 16.0f, 0xFFFFFFFF, 1);
+		             (pU->u1 - pU->u0) * (x1 - cursorX) / 32.0f, // scale UV to the clipped extent
+		         pU->v0 + (pU->v1 - pU->v0) * (y1 - cursorY) / 32.0f, 0xFFFFFFFF, 1);
 	}
 
 	if (IDirect3DDevice2_BeginScene(s_pDev) == D3D_OK)

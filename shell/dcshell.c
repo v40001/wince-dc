@@ -1213,9 +1213,19 @@ static void DrawWinFills(DcWindow *w, int wi, BOOL bActive)
 	GfxIcon((int)w->icon, w->x, w->y - 18);                                   // title-bar icon
 	GfxFill(w->x + w->w - 14, w->y - 16, w->x + w->w + 1, w->y - 3, CL_FACE); // close box
 	{
+		// the stock CE close glyph: a thin 2-stroke x-mark (extracted, not a text 'X')
+		static const char *s_aXArt[9] = {"XX.....XX", "XXX...XXX", ".XXX.XXX.", "..XXXXX..",
+		                                 "...XXX...", "..XXXXX..", ".XXX.XXX.", "XXX...XXX",
+		                                 "XX.....XX"};
 		RECT rcClose;
+		int gx, gy;
 		SetRect(&rcClose, w->x + w->w - 14, w->y - 16, w->x + w->w + 1, w->y - 3);
 		GfxBevel(&rcClose, TRUE);
+		for (gy = 0; gy < 9; gy++)
+			for (gx = 0; gx < 9; gx++)
+				if (s_aXArt[gy][gx] == 'X')
+					GfxFill(rcClose.left + 3 + gx, rcClose.top + 2 + gy, rcClose.left + 4 + gx,
+					        rcClose.top + 3 + gy, CL_TEXT);
 	}
 	{ // maximize/restore box (left of close) + its glyph (a little window w/ a title bar)
 		int nMaxX0 = w->x + w->w - 30, nMaxY0 = w->y - 16;
@@ -1258,7 +1268,6 @@ static void DrawWinText(HDC hdc, DcWindow *w, int wi, BOOL bActive)
 	GfxSetClip(w->x - 2, w->y - 18, w->x + w->w + 2, w->y - 2);
 	GfxText(hdc, w->x + 18, w->y - 16, CL_WHITE, bActive ? CL_TITLE : RGB(112, 112, 112),
 	        g_FontBold, w->title);
-	GfxText(hdc, w->x + w->w - 11, w->y - 16, CL_TEXT, CL_FACE, g_FontUI, L"X");
 	GfxClearClip();
 	GfxSetClip(w->x, w->y, w->x + w->w, w->y + w->h); // clip content text to the client area
 	for (i = 0; i < s_anSnapN[wi]; i++)
