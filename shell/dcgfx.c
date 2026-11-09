@@ -73,6 +73,16 @@ static int s_nWallW = 0, s_nWallH = 0;     // wallpaper pixel size (clamped to P
 static int s_nWallStyle = GFXWALL_STRETCH; // remembered draw style
 static WCHAR s_szWallPath[MAX_PATH] = {0}; // remembered path (re-upload after a surface loss)
 
+// Start-menu banner (the vertical "Windows CE" strip): same BMP->565 VRAM path as the
+// wallpaper but on its own pow2 texture (BAN_TW x BAN_TH) so it doesn't share the 1 MB page.
+#define BAN_TW 64
+#define BAN_TH 512
+static LPDIRECTDRAWSURFACE s_pBanSurf = NULL;
+static LPDIRECT3DTEXTURE2 s_pBanTex = NULL;
+static D3DTEXTUREHANDLE s_hBan = 0;
+static int s_nBanW = 0, s_nBanH = 0;
+static WCHAR s_szBanPath[MAX_PATH] = {0};
+
 // The scene buffer is backed by a STATIC working buffer (BSS), so the desktop ALWAYS renders: a
 // purely heap-allocated buffer black-screened the shell on real hardware (the PVR2's tile-accelerator
 // reads vertices by DMA, and the process LocalHeap is apparently not where it can reach / can run
@@ -839,6 +849,17 @@ static void DestroySurfaces(void)
 		IDirectDrawSurface_Release(s_pWallSurf);
 		s_pWallSurf = NULL;
 	}
+	s_hBan = 0; // banner texture (re-uploaded by GfxReloadBanner after CreateSurfaces)
+	if (s_pBanTex)
+	{
+		IDirect3DTexture2_Release(s_pBanTex);
+		s_pBanTex = NULL;
+	}
+	if (s_pBanSurf)
+	{
+		IDirectDrawSurface_Release(s_pBanSurf);
+		s_pBanSurf = NULL;
+	}
 	if (s_pGdiSurf)
 	{
 		IDirectDrawSurface_Release(s_pGdiSurf);
@@ -1118,10 +1139,11 @@ BOOL GfxPresent(int cursorX, int cursorY, BOOL showCursor)
 			D3DTEXTUREHANDLE th;
 			while (j < s_nQuad && s_pQtex[j] == bTex)
 				j++;
-			th = (bTex == 3)   ? s_hWall
+			th = (bTex == 4)   ? s_hBan
+			     : (bTex == 3) ? s_hWall
 			     : (bTex == 2) ? s_hPage
 			     : (bTex == 1) ? s_hAtlas
-			                   : 0; // 3 = wallpaper, 2 = page, 1 = atlas, 0 = solid
+			                   : 0; // 4 = banner, 3 = wallpaper, 2 = page, 1 = atlas, 0 = solid
 			IDirect3DDevice2_SetRenderState(s_pDev, D3DRENDERSTATE_TEXTUREHANDLE, th);
 			// Pass ONLY this run's vertices (&s_pVb[i*4], (j-i)*4) with the base-relative
 			// index template s_pIb[0..]. Passing the whole array each batch made the TA
@@ -1503,6 +1525,191 @@ BOOL GfxDrawWallpaperRect(int dx, int dy, int dw, int dh)
 	return TRUE;
 }
 
+// --- Start-menu banner -----------------------------------------------------------
+// Create the VRAM 565 banner texture (once; recreated after a surface loss).
+static BOOL EnsureBanTexture(void)
+{
+	DDSURFACEDESC sd;
+	if (s_pBanSurf)
+	{
+		if (!s_hBan && s_pBanTex)
+			IDirect3DTexture2_GetHandle(s_pBanTex, s_pDev, &s_hBan);
+		return TRUE;
+	}
+	if (!s_pDd || !s_pDev)
+		return FALSE;
+	memset(&sd, 0, sizeof(sd));
+	sd.dwSize = sizeof(sd);
+	sd.dwFlags = DDSD_CAPS | DDSD_WIDTH | DDSD_HEIGHT | DDSD_PIXELFORMAT;
+	sd.ddsCaps.dwCaps = DDSCAPS_TEXTURE | DDSCAPS_VIDEOMEMORY;
+	sd.dwWidth = BAN_TW;
+	sd.dwHeight = BAN_TH;
+	sd.ddpfPixelFormat.dwSize = sizeof(DDPIXELFORMAT);
+	sd.ddpfPixelFormat.dwFlags = DDPF_RGB;
+	sd.ddpfPixelFormat.dwRGBBitCount = 16;
+	sd.ddpfPixelFormat.dwRBitMask = 0xF800;
+	sd.ddpfPixelFormat.dwGBitMask = 0x07E0;
+	sd.ddpfPixelFormat.dwBBitMask = 0x001F;
+	if (IDirectDraw_CreateSurface(s_pDd, &sd, &s_pBanSurf, NULL) != DD_OK || !s_pBanSurf)
+		return FALSE;
+	if (IDirectDrawSurface_QueryInterface(s_pBanSurf, &IID_IDirect3DTexture2,
+	                                      (void **)&s_pBanTex) != DD_OK ||
+	    IDirect3DTexture2_GetHandle(s_pBanTex, s_pDev, &s_hBan) != DD_OK)
+		return FALSE;
+	return TRUE;
+}
+
+// Load a 24-bit BMP into the banner texture. Same decode as GfxSetWallpaper (Bayer-dithered
+// 565 staging -> BltFast); the bitmap is clipped at BAN_TW x BAN_TH.
+BOOL GfxSetBanner(const WCHAR *pszPath)
+{
+	HANDLE hf;
+	DWORD dwSize, dwRead = 0;
+	BYTE *pbFile = NULL;
+	BITMAPFILEHEADER *pbf;
+	BITMAPINFOHEADER *pbi;
+	LPDIRECTDRAWSURFACE pStage = NULL;
+	DDSURFACEDESC sd;
+	BOOL bOk = FALSE;
+
+	if (pszPath != s_szBanPath)
+	{
+		int n = 0;
+		if (pszPath)
+			for (; pszPath[n] && n < MAX_PATH - 1; n++)
+				s_szBanPath[n] = pszPath[n];
+		s_szBanPath[n] = 0;
+	}
+	if (!s_szBanPath[0])
+	{
+		s_nBanW = s_nBanH = 0;
+		return FALSE;
+	}
+
+	hf = CreateFileW(s_szBanPath, GENERIC_READ, FILE_SHARE_READ, NULL, OPEN_EXISTING,
+	                 FILE_ATTRIBUTE_NORMAL, NULL);
+	if (hf == INVALID_HANDLE_VALUE)
+		return FALSE;
+	dwSize = GetFileSize(hf, NULL);
+	if (dwSize > sizeof(BITMAPFILEHEADER) + sizeof(BITMAPINFOHEADER) && dwSize < 4u * 1024 * 1024)
+		pbFile = (BYTE *)LocalAlloc(LMEM_FIXED, dwSize);
+	if (pbFile && ReadFile(hf, pbFile, dwSize, &dwRead, NULL) && dwRead == dwSize)
+	{
+		pbf = (BITMAPFILEHEADER *)pbFile;
+		pbi = (BITMAPINFOHEADER *)(pbFile + sizeof(BITMAPFILEHEADER));
+		if (pbf->bfType == 0x4D42 && pbi->biBitCount == 24 && pbi->biCompression == BI_RGB &&
+		    pbf->bfOffBits < dwSize)
+		{
+			int w = pbi->biWidth;
+			int bTopDown = pbi->biHeight < 0;
+			int h = bTopDown ? -pbi->biHeight : pbi->biHeight;
+			int srcRow = ((w * 3) + 3) & ~3;
+			int tw = w > BAN_TW ? BAN_TW : w;
+			int th = h > BAN_TH ? BAN_TH : h;
+			BYTE *pbBits = pbFile + pbf->bfOffBits;
+			if (w > 0 && h > 0 && pbf->bfOffBits + (DWORD)srcRow * h <= dwSize)
+			{
+				memset(&sd, 0, sizeof(sd));
+				sd.dwSize = sizeof(sd);
+				sd.dwFlags = DDSD_CAPS | DDSD_WIDTH | DDSD_HEIGHT | DDSD_PIXELFORMAT;
+				sd.ddsCaps.dwCaps = DDSCAPS_OFFSCREENPLAIN | DDSCAPS_SYSTEMMEMORY;
+				sd.dwWidth = tw;
+				sd.dwHeight = th;
+				sd.ddpfPixelFormat.dwSize = sizeof(DDPIXELFORMAT);
+				sd.ddpfPixelFormat.dwFlags = DDPF_RGB;
+				sd.ddpfPixelFormat.dwRGBBitCount = 16;
+				sd.ddpfPixelFormat.dwRBitMask = 0xF800;
+				sd.ddpfPixelFormat.dwGBitMask = 0x07E0;
+				sd.ddpfPixelFormat.dwBBitMask = 0x001F;
+				if (s_pDd && IDirectDraw_CreateSurface(s_pDd, &sd, &pStage, NULL) == DD_OK &&
+				    pStage)
+				{
+					DDSURFACEDESC lk;
+					memset(&lk, 0, sizeof(lk));
+					lk.dwSize = sizeof(lk);
+					if (IDirectDrawSurface_Lock(pStage, NULL, &lk, DDLOCK_WAIT, NULL) == DD_OK)
+					{
+						// same 4x4 ordered dither as the wallpaper (24->565)
+						static const int aBayer[16] = {0, 8,  2, 10, 12, 4, 14, 6,
+						                               3, 11, 1, 9,  15, 7, 13, 5};
+						int x, y;
+						for (y = 0; y < th; y++)
+						{
+							int srcY = bTopDown ? y : (h - 1 - y);
+							const BYTE *s = pbBits + srcY * srcRow;
+							WORD *d = (WORD *)((BYTE *)lk.lpSurface + y * lk.lPitch);
+							for (x = 0; x < tw; x++, s += 3)
+							{
+								int e = aBayer[((y & 3) << 2) | (x & 3)] - 8;
+								int B = s[0] + (e >> 1), G = s[1] + (e >> 2), R = s[2] + (e >> 1);
+								if (R < 0)
+									R = 0;
+								else if (R > 255)
+									R = 255;
+								if (G < 0)
+									G = 0;
+								else if (G > 255)
+									G = 255;
+								if (B < 0)
+									B = 0;
+								else if (B > 255)
+									B = 255;
+								d[x] = (WORD)(((R >> 3) << 11) | ((G >> 2) << 5) | (B >> 3));
+							}
+						}
+						IDirectDrawSurface_Unlock(pStage, NULL);
+						if (EnsureBanTexture())
+						{
+							RECT src;
+							src.left = 0;
+							src.top = 0;
+							src.right = tw;
+							src.bottom = th;
+							IDirectDrawSurface_BltFast(s_pBanSurf, 0, 0, pStage, &src,
+							                           DDBLTFAST_WAIT);
+							s_nBanW = tw;
+							s_nBanH = th;
+							bOk = TRUE;
+						}
+					}
+				}
+			}
+		}
+	}
+	if (pStage)
+		IDirectDrawSurface_Release(pStage);
+	if (pbFile)
+		LocalFree(pbFile);
+	CloseHandle(hf);
+	if (!bOk)
+		s_nBanW = s_nBanH = 0;
+	return bOk;
+}
+
+// Re-upload the remembered banner after the surfaces were recreated (post fullscreen app).
+void GfxReloadBanner(void)
+{
+	if (s_szBanPath[0])
+		GfxSetBanner(s_szBanPath);
+}
+
+void GfxBannerSize(int *w, int *h)
+{
+	if (w)
+		*w = s_nBanW;
+	if (h)
+		*h = s_nBanH;
+}
+
+// Queue the banner scaled into a dst rect (the Start menu sizes it to its own height).
+void GfxBlitBanner(int dx, int dy, int dw, int dh)
+{
+	if (!s_hBan || s_nBanW <= 0 || s_nBanH <= 0 || dw <= 0 || dh <= 0)
+		return;
+	PushQuad((float)dx, (float)dy, (float)(dx + dw), (float)(dy + dh), 0.0f, 0.0f,
+	         (float)s_nBanW / BAN_TW, (float)s_nBanH / BAN_TH, 0xFFFFFFFF, 4);
+}
+
 static DWORD s_dwLastExit = 0; // exit code of the last GfxLaunch'd app (crash code if it faulted)
 DWORD GfxLastExitCode(void)
 {
@@ -1552,6 +1759,7 @@ int GfxLaunch(const WCHAR *path, GFXPOLLFN pfnPoll)
 		InitD3D();
 		BuildAtlas();
 		GfxReloadWallpaper(); // surfaces were torn down for the app -> re-upload the wallpaper
+		GfxReloadBanner();    // same for the Start-menu banner texture
 	}
 	return nKill;
 }

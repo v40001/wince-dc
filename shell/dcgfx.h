@@ -113,6 +113,14 @@ extern "C"
 	BOOL GfxDrawWallpaperRect(int dx, int dy, int dw,
 	                          int dh); // wallpaper scaled into a rect (preview)
 
+	// Start-menu banner: a tall thin 24-bit BMP (the vertical "Windows CE" brand strip from
+	// the stock ceshell menu) on its own small VRAM texture. GfxBlitBanner scales it into a
+	// dst rect; GfxBannerSize reports the native pixel size (0x0 = not loaded).
+	BOOL GfxSetBanner(const WCHAR *path);
+	void GfxReloadBanner(void);
+	void GfxBlitBanner(int dx, int dy, int dw, int dh);
+	void GfxBannerSize(int *w, int *h);
+
 	extern HFONT g_FontUI;
 	extern HFONT g_FontBold;
 	extern HFONT g_FontTitle;

@@ -18,7 +18,7 @@
 #include "vmustore.h"
 
 #define TASK_H     26
-#define ROW_H      18 // Start-menu row height
+#define ROW_H      40 // Start-menu row height (the stock CE menu is a touch UI: ~44px rows)
 #define TASK_Y     (SCREEN_H - TASK_H)
 #define MENU_W     168
 
@@ -35,6 +35,7 @@ typedef struct
 	const WCHAR *path; // open Explorer here, or NULL
 	const WCHAR *exe;  // launch this app, or NULL
 	int icon;          // ICON_*
+	int sep;           // draw an etched separator groove at the top of this row (Start menu)
 } SHORTCUT;
 
 // Built-in desktop shortcuts. The live desktop is a mutable copy (s_aDesk) so the user can
@@ -58,14 +59,27 @@ static int s_anDeskUser[MAXDESK]; // for user-added: the s_start[] index it came
 static int s_cDesk = 0;
 
 static const SHORTCUT s_start[] = {
-    {L"My Dreamcast", L"\\", NULL, ICON_SWIRL},
-    {L"Windows", L"\\Windows", NULL, ICON_FOLDER},
-    {L"CD-ROM", L"\\CD-ROM", NULL, ICON_DRIVE},
-    {L"Task Manager", NULL, L"dcwtask.exe", ICON_APP},
-    {L"Crash Test", NULL, L"dcwtask.exe crash", ICON_APP},
-    {L"Shut Down...", NULL, NULL, ICON_POWER},
+    {L"My Dreamcast", L"\\", NULL, ICON_SWIRL, 0},
+    {L"Windows", L"\\Windows", NULL, ICON_FOLDER, 0},
+    {L"CD-ROM", L"\\CD-ROM", NULL, ICON_DRIVE, 0},
+    {L"Task Manager", NULL, L"dcwtask.exe", ICON_APP, 0},
+    {L"Crash Test", NULL, L"dcwtask.exe crash", ICON_APP, 0},
+    {L"Shut Down...", NULL, NULL, ICON_POWER, 1}, // separator above, like CE's "Suspend"
 };
 #define START_N (sizeof(s_start) / sizeof(s_start[0]))
+
+// Width of the vertical "Windows CE" brand strip along the left edge of the open Start menu
+// (the stock ceshell bitmap, loaded as \Windows\startban.bmp). 0 when the bitmap isn't
+// staged -> the menu falls back to the plain look. The bitmap keeps its aspect ratio,
+// scaled to the menu's height.
+static int StartMenuStrip(void)
+{
+	int nBanW = 0, nBanH = 0;
+	GfxBannerSize(&nBanW, &nBanH);
+	if (nBanW <= 0 || nBanH <= 0)
+		return 0;
+	return ((int)START_N * ROW_H + 2) * nBanW / nBanH;
+}
 
 // --- right-click context menu (LT+A on the pad, or the DC mouse's right button) ---
 enum
@@ -1111,13 +1125,26 @@ static void RenderTaskbarFills(void)
 	{
 		int h = (int)START_N * ROW_H + 8;
 		int my = TASK_Y - h + 4, i;
-		SetRect(&rc, 4, TASK_Y - h, 4 + MENU_W, TASK_Y);
+		int nStrip = StartMenuStrip();
+		SetRect(&rc, 4, TASK_Y - h, 4 + MENU_W + nStrip, TASK_Y);
 		GfxFill(rc.left, rc.top, rc.right, rc.bottom, CL_FACE);
 		GfxBevel(&rc, TRUE);
+		if (nStrip)
+			GfxBlitBanner(5, TASK_Y - h + 1, nStrip, h - 2); // brand strip, edge to edge
 		if (s_nMenuSel >= 0 && s_nMenuSel < (int)START_N)
-			GfxFill(8, my + s_nMenuSel * ROW_H, MENU_W, my + (s_nMenuSel + 1) * ROW_H, CL_SEL);
+			GfxFill(8 + nStrip, my + s_nMenuSel * ROW_H, MENU_W + nStrip,
+			        my + (s_nMenuSel + 1) * ROW_H, CL_SEL);
 		for (i = 0; i < (int)START_N; i++)
-			GfxIcon(s_start[i].icon, 10, my + i * ROW_H + 1);
+		{
+			if (s_start[i].sep) // etched groove, like the stock menu's before "Suspend"
+			{
+				GfxFill(8 + nStrip, my + i * ROW_H + 1, MENU_W + nStrip,
+				        my + i * ROW_H + 2, RGB(128, 128, 128));
+				GfxFill(8 + nStrip, my + i * ROW_H + 2, MENU_W + nStrip,
+				        my + i * ROW_H + 3, RGB(255, 255, 255));
+			}
+			GfxIcon(s_start[i].icon, 10 + nStrip, my + i * ROW_H + (ROW_H - 16) / 2);
+		}
 	}
 }
 
@@ -1153,11 +1180,13 @@ static void RenderBarsText(HDC hdc)
 	{
 		int h = (int)START_N * ROW_H + 8;
 		int my = TASK_Y - h + 4;
+		int nStrip = StartMenuStrip();
 		for (i = 0; i < (int)START_N; i++)
 		{
 			COLORREF fg = (i == s_nMenuSel) ? CL_WHITE : CL_TEXT;
 			COLORREF bg = (i == s_nMenuSel) ? CL_SEL : CL_FACE;
-			GfxText(hdc, 30, my + i * ROW_H + 1, fg, bg, g_FontUI, s_start[i].label);
+			GfxText(hdc, 30 + nStrip, my + i * ROW_H + (ROW_H - 14) / 2, fg, bg, g_FontUI,
+			        s_start[i].label);
 		}
 	}
 }
@@ -1596,7 +1625,10 @@ static int HandleClick(int x, int y)
 	if (s_bMenuOpen)
 	{
 		int h = (int)START_N * ROW_H + 8, my = TASK_Y - h + 4;
-		if (x >= 4 && x < 4 + MENU_W && y >= my && y < my + (int)START_N * ROW_H)
+		int nStrip = StartMenuStrip();
+		// the brand strip itself isn't clickable - a click there dismisses, like stock CE
+		if (x >= 8 + nStrip && x < 4 + MENU_W + nStrip && y >= my &&
+		    y < my + (int)START_N * ROW_H)
 		{
 			s_nMenuSel = (y - my) / ROW_H;
 			ActivateStartItem();
@@ -1697,7 +1729,9 @@ static void DragHitTest(int x, int y)
 	if (s_bMenuOpen) // grabbing a Start-menu row -> drag-to-desktop
 	{
 		int h = (int)START_N * ROW_H + 8, my = TASK_Y - h + 4, nRow;
-		if (x >= 4 && x < 4 + MENU_W && y >= my && y < my + (int)START_N * ROW_H)
+		int nStrip = StartMenuStrip();
+		if (x >= 8 + nStrip && x < 4 + MENU_W + nStrip && y >= my &&
+		    y < my + (int)START_N * ROW_H)
 		{
 			nRow = (y - my) / ROW_H;
 			if (nRow >= 0 && nRow < (int)START_N && (s_start[nRow].exe || s_start[nRow].path))
@@ -1946,6 +1980,8 @@ int WINAPI WinMain(HINSTANCE hInst, HINSTANCE hPrev, LPWSTR lpszCmd, int nShow)
 	DbgStr(L"DCSHELL: desktop up\r\n");
 	DeskInit();           // seed shortcuts (built-ins + VMU-persisted) + lay out
 	ApplyDisplayConfig(); // load the desktop wallpaper (if any) from the disc
+	// the stock Start-menu brand strip (extracted from the H/PC image; ignored if absent)
+	GfxSetBanner(L"\\Windows\\startban.bmp");
 
 	// Run a notch above client apps. We are the window server: input polling and the
 	// cursor present must preempt a CPU-bound or fast-republishing client, or the
@@ -2059,8 +2095,9 @@ int WINAPI WinMain(HINSTANCE hInst, HINSTANCE hPrev, LPWSTR lpszCmd, int nShow)
 				         s_bMenuOpen) // Start menu open: highlight the item under the cursor
 				{
 					int h = (int)START_N * ROW_H + 8, my = TASK_Y - h + 4;
-					if (s_nCx >= 4 && s_nCx < 4 + MENU_W && s_nCy >= my &&
-					    s_nCy < my + (int)START_N * ROW_H)
+					int nStrip = StartMenuStrip();
+					if (s_nCx >= 8 + nStrip && s_nCx < 4 + MENU_W + nStrip &&
+					    s_nCy >= my && s_nCy < my + (int)START_N * ROW_H)
 					{
 						int nRow = (s_nCy - my) / ROW_H;
 						if (nRow >= 0 && nRow < (int)START_N && nRow != s_nMenuSel)
@@ -2113,7 +2150,9 @@ int WINAPI WinMain(HINSTANCE hInst, HINSTANCE hPrev, LPWSTR lpszCmd, int nShow)
 					{
 						int h = (int)START_N * ROW_H + 8, my = TASK_Y - h + 4;
 						if (s_nCy < TASK_Y &&
-						    (s_nCy < my || s_nCx >= 4 + MENU_W)) // dropped on the desktop
+						    (s_nCy < my ||
+						     s_nCx >= 4 + MENU_W +
+						                   StartMenuStrip())) // dropped on the desktop
 							AddDesktopShortcut(s_nDragTarget, s_nCx, s_nCy);
 						s_bMenuOpen = 0;
 					}

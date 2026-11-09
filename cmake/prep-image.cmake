@@ -21,6 +21,9 @@ if(ASSETS)
   if(EXISTS "${ASSETS}/wince.bmp")
     list(APPEND _assets "${ASSETS}/wince.bmp")
   endif()
+  if(EXISTS "${ASSETS}/startban.bmp")
+    list(APPEND _assets "${ASSETS}/startban.bmp")
+  endif()
   # Stage the extracted-CE shell assets and declare them in the work-dir gemini.bib (the
   # platform .bib fmerge actually reads - ce.bib is not in the _DEPTREES merge). The seed copy
   # is re-copied from a pristine vendor tree every run, so the appends never accumulate; with
