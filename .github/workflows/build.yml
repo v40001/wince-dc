@@ -30,6 +30,7 @@ jobs:
           path: |
             build/disc/disc.gdi
             build/disc/track*.bin
+            build/disc/track*.raw
             build/0winceos.bin
             build/0winceoshtml.bin
           if-no-files-found: error

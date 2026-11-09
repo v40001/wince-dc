@@ -21,7 +21,21 @@ $sec = 2352
 
 if (-not (Test-Path $Image))               { throw "image not found: $Image" }
 if (-not (Test-Path "$Utils\buildgdi.exe")){ throw "buildgdi.exe not found in $Utils" }
-if (-not (Test-Path "$Utils\ip.bin"))      { throw "ip.bin not found in $Utils" }
+
+$ipBin = "$Utils\ip.bin"
+if (-not (Test-Path $ipBin)) {
+  # No HL-DC IP.BIN at utils\ip.bin: synthesize one from the SDK ipkit sample
+  # (a real GD-ROM bootstrap) by patching its bootfile field to 0WINCEOS.BIN.
+  $src = "$PSScriptRoot\..\vendor\wcesdk\tools\ipkit\ip.bin"
+  if (-not (Test-Path $src)) { throw "ip.bin not found in $Utils and no SDK ipkit fallback at $src" }
+  New-Item -ItemType Directory -Force -Path $OutDir | Out-Null
+  $ipBin = Join-Path $OutDir "ip.bin"
+  $b = [IO.File]::ReadAllBytes($src)
+  $name = [Text.Encoding]::ASCII.GetBytes("0WINCEOS.BIN    ") # bootfile field @0x60, 16 bytes
+  [Array]::Copy($name, 0, $b, 0x60, 16)
+  [IO.File]::WriteAllBytes($ipBin, $b)
+  Write-Host "ip.bin: synthesized from SDK ipkit sample (bootfile=0WINCEOS.BIN) -> $ipBin"
+}
 
 $data = Join-Path $OutDir "data"
 Remove-Item $OutDir -Recurse -Force -ErrorAction SilentlyContinue
@@ -44,7 +58,7 @@ Copy-Item "$Utils\Half-Life.GDI" $gdi -Force
 # resulting multi-track GDI fine; the file data still ends at the disc's end LBA.
 # Pass -Full for a FULL, contiguously-padded data track (large, ~1.1 GB; some loaders/GDEMU
 # prefer the non-gapped layout). Default (no -Full) emits the sparse/truncated track.
-$bgArgs = @('-data', $data, '-ip', "$Utils\ip.bin", '-output', $OutDir, '-gdi', $gdi, '-V', 'WINCE')
+$bgArgs = @('-data', $data, '-ip', $ipBin, '-output', $OutDir, '-gdi', $gdi, '-V', 'WINCE')
 if (-not $Full) { $bgArgs += '-truncate' }
 Write-Host ("buildgdi: {0} data track" -f ($(if ($Full) {'FULL padded'} else {'truncated (sparse)'})))
 & "$Utils\buildgdi.exe" @bgArgs | Out-Null
