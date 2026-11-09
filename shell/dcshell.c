@@ -1129,8 +1129,13 @@ static void RenderBarsText(HDC hdc)
 
 	GfxText(hdc, 28, TASK_Y + 5, CL_TEXT, CL_FACE, g_FontBold, L"Start");
 	GetLocalTime(&t);
-	wsprintfW(szClk, L"%02d:%02d", t.wHour, t.wMinute);
-	GfxText(hdc, SCREEN_W - 50, TASK_Y + 5, CL_TEXT, CL_FACE, g_FontUI, szClk);
+	{ // the H/PC tray shows 12-hour time: "3:07 PM"
+		int h12 = t.wHour % 12;
+		if (!h12)
+			h12 = 12;
+		wsprintfW(szClk, L"%d:%02d %s", h12, t.wMinute, t.wHour < 12 ? L"AM" : L"PM");
+	}
+	GfxText(hdc, SCREEN_W - 54, TASK_Y + 5, CL_TEXT, CL_FACE, g_FontUI, szClk);
 
 	if (s_pShared)
 	{
