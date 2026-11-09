@@ -43,12 +43,13 @@ typedef struct
 // live array stores no allocations.
 static const SHORTCUT s_deskDefault[] = {
     {L"My Dreamcast", L"\\", NULL, ICON_SWIRL},
+    {L"Recycle Bin", L"\\", NULL, ICON_BIN},
     {L"CD-ROM", L"\\CD-ROM", NULL, ICON_DRIVE},
     {L"Calculator", NULL, L"dcwcalc.exe", ICON_APP},
     {L"Clock", NULL, L"dcwclock.exe", ICON_CLOCK},
     {L"Task Manager", NULL, L"dcwtask.exe", ICON_APP},
-    {L"Network", NULL, L"dcwnet.exe", ICON_APP},
-    {L"System Log", NULL, L"dcwlog.exe", ICON_APP},
+    {L"Network", NULL, L"dcwnet.exe", ICON_NET},
+    {L"System Log", NULL, L"dcwlog.exe", ICON_FILE},
 };
 #define DEFAULT_N (sizeof(s_deskDefault) / sizeof(s_deskDefault[0]))
 #define MAXDESK   24
@@ -62,7 +63,7 @@ static const SHORTCUT s_start[] = {
     {L"CD-ROM", L"\\CD-ROM", NULL, ICON_DRIVE},
     {L"Task Manager", NULL, L"dcwtask.exe", ICON_APP},
     {L"Crash Test", NULL, L"dcwtask.exe crash", ICON_APP},
-    {L"Shut Down...", NULL, NULL, ICON_FILE},
+    {L"Shut Down...", NULL, NULL, ICON_POWER},
 };
 #define START_N (sizeof(s_start) / sizeof(s_start[0]))
 
@@ -438,10 +439,11 @@ typedef struct
 {
 	DWORD dwMagic;
 	DWORD dwStyle;    // GFXWALL_*
-	WCHAR szWall[64]; // wallpaper file name in \CD-ROM\Wallpaper\ (empty = none)
+	WCHAR szWall[64]; // wallpaper file name (\Windows ROM or \CD-ROM\Wallpaper; empty = none)
 } DispCfg;
 
-static WCHAR s_aWall[WALL_MAX][64]; // [0] = "(None)", then the *.bmp file names on the disc
+static WCHAR s_aWall[WALL_MAX][64]; // [0] = "(None)", [1] = the built-in CE logo, then *.bmp on disc
+static int s_abWallRom[WALL_MAX];   // entry lives in \Windows (ROM) rather than \CD-ROM\Wallpaper
 static int s_cWall = 0;             // entry count (incl. "(None)")
 static int s_nCurWall = 0;          // committed wallpaper index + style (survive Cancel)
 static int s_nCurStyle = GFXWALL_STRETCH;
@@ -458,25 +460,40 @@ static void ScanWallpapers(void)
 	WIN32_FIND_DATAW fd;
 	HANDLE h;
 	wsprintfW(s_aWall[0], L"(None)");
+	s_abWallRom[0] = 0;
 	s_cWall = 1;
+	// the stock CE desktop brand: wince.bmp baked into the ROM (\Windows), so it exists even
+	// on a bare image with no disc data
+	if (s_cWall < WALL_MAX &&
+	    GetFileAttributesW(L"\\Windows\\wince.bmp") != 0xFFFFFFFF)
+	{
+		wsprintfW(s_aWall[s_cWall], L"wince.bmp");
+		s_abWallRom[s_cWall] = 1;
+		s_cWall++;
+	}
 	h = FindFirstFileW(L"\\CD-ROM\\Wallpaper\\*.bmp", &fd);
 	if (h != INVALID_HANDLE_VALUE)
 	{
 		do
 		{
 			if (s_cWall < WALL_MAX)
-				wsprintfW(s_aWall[s_cWall++], L"%s", fd.cFileName);
+			{
+				wsprintfW(s_aWall[s_cWall], L"%s", fd.cFileName);
+				s_abWallRom[s_cWall] = 0;
+				s_cWall++;
+			}
 		} while (FindNextFileW(h, &fd));
 		FindClose(h);
 	}
 }
 
-static void WallPath(int idx, WCHAR *pszOut) // full disc path for entry idx ("" = none)
+static void WallPath(int idx, WCHAR *pszOut) // full path for entry idx ("" = none)
 {
 	if (idx <= 0 || idx >= s_cWall)
 		pszOut[0] = 0;
 	else
-		wsprintfW(pszOut, L"\\CD-ROM\\Wallpaper\\%s", s_aWall[idx]);
+		wsprintfW(pszOut, L"%s%s", s_abWallRom[idx] ? L"\\Windows\\" : L"\\CD-ROM\\Wallpaper\\",
+		          s_aWall[idx]);
 }
 
 static void ApplyWall(int idx, int nStyle) // push the choice to the live desktop
@@ -1068,7 +1085,12 @@ static void RenderTaskbarFills(void)
 	GfxBevel(&rc, TRUE);
 	SetRect(&rc, 4, TASK_Y + 3, 72, SCREEN_H - 3);
 	GfxFill(rc.left, rc.top, rc.right, rc.bottom, CL_FACE);
-	GfxBevel(&rc, TRUE);
+	GfxBevel(&rc, s_bMenuOpen ? FALSE : TRUE); // pressed while the menu is up
+	GfxIcon(ICON_START, 8, TASK_Y + 5);        // the CE flag, like the H/PC Start button
+
+	SetRect(&rc, SCREEN_W - 58, TASK_Y + 3, SCREEN_W - 4, SCREEN_H - 3); // sunken clock tray
+	GfxFill(rc.left, rc.top, rc.right, rc.bottom, CL_FACE);
+	GfxBevel(&rc, FALSE);
 
 	if (s_pShared) // one button per open window (focused = pressed)
 	{
@@ -1105,10 +1127,10 @@ static void RenderBarsText(HDC hdc)
 	WCHAR szClk[16];
 	int i;
 
-	GfxText(hdc, 12, TASK_Y + 5, CL_TEXT, CL_FACE, g_FontBold, L"Start");
+	GfxText(hdc, 28, TASK_Y + 5, CL_TEXT, CL_FACE, g_FontBold, L"Start");
 	GetLocalTime(&t);
 	wsprintfW(szClk, L"%02d:%02d", t.wHour, t.wMinute);
-	GfxText(hdc, SCREEN_W - 44, TASK_Y + 5, CL_TEXT, CL_FACE, g_FontUI, szClk);
+	GfxText(hdc, SCREEN_W - 50, TASK_Y + 5, CL_TEXT, CL_FACE, g_FontUI, szClk);
 
 	if (s_pShared)
 	{
@@ -1857,14 +1879,15 @@ static void PublishPointer(int nCursorX, int nCursorY, int bDown)
 }
 
 // Choose the desktop wallpaper at boot: the user's saved choice from the VMU if present, else
-// "(None)" (a clean teal desktop). Drop a BMP via Display Properties to set one.
+// the built-in Windows CE brand bitmap (centred) - the stock H/PC look. "(None)" stays
+// selectable from Display Properties for a clean teal desktop.
 static void ApplyDisplayConfig(void)
 {
 	DispCfg c;
 	int nGot = 0, i;
 	ScanWallpapers();
-	s_nCurWall = 0; // default: (None) - clean teal desktop until the user picks a wallpaper
-	s_nCurStyle = GFXWALL_STRETCH;
+	s_nCurWall = (s_cWall > 1) ? 1 : 0; // default: wince.bmp centred, unless it isn't in the image
+	s_nCurStyle = GFXWALL_CENTER;
 	if (VmuLoadAs(DISP_VMUFILE, &c, sizeof(c), &nGot) && nGot >= (int)sizeof(c) &&
 	    c.dwMagic == DISP_MAGIC)
 	{

@@ -928,7 +928,7 @@ int DcwMain(HINSTANCE hInst, LPWSTR lpCmd)
 	int cw = CW, ch = CH, bDirty = 1, nPrevBtn = 0;
 	DWORD dwKey;
 
-	w = DCWinOpen(70, 40, CW, CH, L"Network Diagnostics", ICON_APP);
+	w = DCWinOpen(70, 40, CW, CH, L"Network Diagnostics", ICON_NET);
 	if (!w)
 	{
 		OutputDebugStringW(L"DCWNET: DCWinOpen failed\r\n");

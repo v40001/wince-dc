@@ -14,6 +14,7 @@
 //
 #define CINTERFACE // C-style DDraw/D3D COM (dcgfx.h no longer defines this)
 #include "dcgfx.h"
+#include "dcico.h" // .ico -> ARGB4444 decoder (the real CE icons live in \Windows\dcico_*.ico)
 #include <ddraw.h>
 #include <d3d.h>
 #include <wdm.h> // MmMapIoSpace / PHYSICAL_ADDRESS (page-layer framebuffer map)
@@ -129,9 +130,28 @@ static HFONT MakeFont(int nHeight, int nWeight)
 	memset(&lf, 0, sizeof(lf));
 	lf.lfHeight = -nHeight;
 	lf.lfWeight = nWeight;
-	lstrcpyW(lf.lfFaceName, L"Arial");
+	lstrcpyW(lf.lfFaceName, L"Tahoma"); // the stock CE UI face (falls back if the ttf is absent)
 	return CreateFontIndirectW(&lf);
 }
+
+// Real Windows CE icons: each ICON_* id maps to a .ico in \Windows (extracted from the H/PC
+// ceshell/explorer resources and normalized to 16x16+32x32 24bpp+mask). When a file is missing
+// the ASCII art below is used instead, so the shell still renders on a bare image.
+static const WCHAR *const s_aIcoName[ICON_COUNT] = {
+    L"mycomputer", // ICON_COMPUTER
+    L"drive",      // ICON_DRIVE
+    L"folder",     // ICON_FOLDER
+    L"app",        // ICON_APP
+    L"clock",      // ICON_CLOCK
+    L"file",       // ICON_FILE
+    L"mycomputer", // ICON_SWIRL -> "My Handheld PC"-style machine icon (the swirl is the fallback)
+    L"cursor",     // ICON_CURSOR
+    L"ie",         // ICON_IE
+    L"start",      // ICON_START
+    L"bin",        // ICON_BIN
+    L"net",        // ICON_NET
+    L"power",      // ICON_POWER
+};
 
 // 16x16 icons as ASCII art (' ' = transparent).
 static const char *s_aIconArt[ICON_COUNT][16] = {
@@ -165,6 +185,19 @@ static const char *s_aIconArt[ICON_COUNT][16] = {
      "", "     BBBBB", "   BBBBBBBBB", "  BBBBBWBBBBB", "  BBBBBWBBBBB", " BBBBBBWBBBBBB",
      " WWWWWWWWWWWWW", " BBBBBBWBBBBBB", "  BBBBBWBBBBB", "  BBBBBWBBBBB", "   BBBBBBBBB",
      "     BBBBB", "", "", "", ""},
+    {// ICON_START - CE flag (waving 4-colour flag on a pole)
+     " K", " KrrgYYbB", " K rrggYYbbBB", " KrrggYYbbBB", " KggYYbbBBrr", " KYYbbBBrrgg",
+     " KbbBBrrggYY", " KBBrrggYYbb", " KrrggYYbb", " K", " K", " K", " K", "", "", ""},
+    {// ICON_BIN - Recycle Bin (grey bin, green logo)
+     "", "  KKKKKKKK", " KWGGGGGGWK", " KgGGGGGGgK", " KgGgGGgGgK", " KgGGgGGgGK",
+     " KgGgGGgGgK", " KgGGgGGgGK", " KgGgGGgGgK", " KgGGGGGGgK", "  KKKKKKKK", "", "", "",
+     "", ""},
+    {// ICON_NET - two linked PCs
+     "", " KKK  KKK", " KsK  KsK", " KKKKKKKK", "  K    K", "  K    K", " KKKKKKKK",
+     " KsK    KsK", " KKK  KKK", "", "", "", "", "", "", ""},
+    {// ICON_POWER - power plug
+     "", "      KK", "     KWWK", "    KWWK", "   KWWK", "  KKWK", " KWWK", "KWWK",
+     "KWK", "KK", "", "", "", "", "", ""},
 };
 
 static COLORREF PalColor(char c)
@@ -387,6 +420,42 @@ static void PushQuad(float x0, float y0, float x1, float y1, float u0, float v0,
 	s_nQuad++;
 }
 
+// Load \Windows\dcico_<name>.ico and write the nDim image into the atlas cell for `id`
+// (16px row at y=144, 32px row at y=160, column = id * cell width). Returns 0 when the file
+// is absent/undecodable - the caller then falls back to the ASCII art.
+static int IcoAtlasCell(int id, int nDim, BYTE *pAb, int nAp)
+{
+	WCHAR szPath[64];
+	HANDLE hf;
+	BYTE *pb = NULL;
+	static WORD awPx[32 * 32]; // one cell, ARGB4444
+	DWORD dwSize, dwRead = 0;
+	int x, y, cx, cy, ok = 0;
+
+	wsprintfW(szPath, L"\\Windows\\dcico_%s.ico", s_aIcoName[id]);
+	hf = CreateFileW(szPath, GENERIC_READ, FILE_SHARE_READ, NULL, OPEN_EXISTING,
+	                 FILE_ATTRIBUTE_NORMAL, NULL);
+	if (hf == INVALID_HANDLE_VALUE)
+		return 0;
+	dwSize = GetFileSize(hf, NULL);
+	if (dwSize > 6 && dwSize < 64 * 1024)
+		pb = (BYTE *)LocalAlloc(LMEM_FIXED, dwSize);
+	if (pb && ReadFile(hf, pb, dwSize, &dwRead, NULL) && dwRead == dwSize &&
+	    IcoTo4444(pb, dwSize, nDim, awPx))
+	{
+		cx = (nDim == 16) ? id * 16 : id * 32;
+		cy = (nDim == 16) ? 144 : 160;
+		for (y = 0; y < nDim; y++)
+			for (x = 0; x < nDim; x++)
+				*((WORD *)(pAb + (cy + y) * nAp) + (cx + x)) = awPx[y * nDim + x];
+		ok = 1;
+	}
+	if (pb)
+		LocalFree(pb);
+	CloseHandle(hf);
+	return ok;
+}
+
 // --- atlas build (one-time): glyphs via GDI raster + icons, upload to VRAM -------
 static void BuildAtlas(void)
 {
@@ -444,6 +513,8 @@ static void BuildAtlas(void)
 			pU->v0 = cy / (float)ATLAS_DIM;
 			pU->u1 = (cx + dim) / (float)ATLAS_DIM;
 			pU->v1 = (cy + dim) / (float)ATLAS_DIM;
+			if (IcoAtlasCell(id, dim, pAb, nAp)) // real CE icon from \Windows\dcico_*.ico
+				continue;
 			for (y = 0; y < 16; y++)
 			{
 				const char *pszRow = s_aIconArt[id][y];
@@ -789,6 +860,7 @@ BOOL GfxInit(HWND hwnd)
 	InitD3D();
 	if (!s_bD3dOk)
 		return FALSE; // hard requirement now (no CPU fallback path)
+	AddFontResourceW(L"\\Windows\\tahoma.ttf"); // stock CE UI face (no-op if already registered)
 	g_FontUI = MakeFont(12, FW_NORMAL);
 	g_FontBold = MakeFont(12, FW_BOLD);
 	g_FontTitle = MakeFont(14, FW_BOLD);

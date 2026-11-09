@@ -106,6 +106,10 @@ flags pick the kernel). The makeimg env lives in `IMG_ENV` in `CMakeLists.txt`.
   (`dcinput`) + client lib (`dcwlib`) + client apps (`dcwcalc`/`dcwclock`/`dcwexp`/`dcwtask`/
   `dcwmem`/`dcwnet`/`dcwlog`/`dcwplay`, `dcwboot` boot screen) + the IE browser
   (`iexplore`/`iehost`/`ieproto`, `-DHTML=on`). CMake `dcshell`/`dcwboot`/`iexplore`/`dcw*` targets.
+  `shell/dcico.h` decodes real CE `.ico`s into the icon atlas; `shell/assets/` holds
+  `dcico_*.ico`/`wince.bmp` (extracted CE resources — kept out of upstream commits; exclude that
+  commit from any PR), staged into `\Windows` by `prep-image.cmake` when present, with
+  procedural fallback art when absent.
 - `vendor/sh-toolchain/` — SH-4 compiler + CE headers. `vendor/wcesdk/` — the vendored CE 2.12
   SDK: `inc`, `lib/retail`, `tools`, `image` (retail OS modules + config + patched kernels
   `nknodbg.exe`/`nkscifkd.exe` + `.map`/`.pdb`), `image-debug` (checked DLL overlay).
