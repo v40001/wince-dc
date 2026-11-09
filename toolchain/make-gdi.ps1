@@ -28,8 +28,8 @@ if (-not (Test-Path $ipBin)) {
   # (a real GD-ROM bootstrap) by patching its bootfile field to 0WINCEOS.BIN.
   $src = "$PSScriptRoot\..\vendor\wcesdk\tools\ipkit\ip.bin"
   if (-not (Test-Path $src)) { throw "ip.bin not found in $Utils and no SDK ipkit fallback at $src" }
-  New-Item -ItemType Directory -Force -Path $OutDir | Out-Null
-  $ipBin = Join-Path $OutDir "ip.bin"
+  # NOTE: beside $OutDir, not inside it - OutDir is wiped below before staging.
+  $ipBin = Join-Path (Split-Path -Parent $OutDir) "ip.bin"
   $b = [IO.File]::ReadAllBytes($src)
   $name = [Text.Encoding]::ASCII.GetBytes("0WINCEOS.BIN    ") # bootfile field @0x60, 16 bytes
   [Array]::Copy($name, 0, $b, 0x60, 16)
