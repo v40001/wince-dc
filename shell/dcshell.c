@@ -35,21 +35,7 @@
 // ~14px-wide bevelled close/min/max boxes tucked to its right edge.
 #define CAPT_H     22
 
-// Win32 OEM VKs for punctuation keys; CE 2.12's winuser.h doesn't ship them (dcinput
-// maps the DC keyboard's punctuation DIKs to these).
-#ifndef VK_OEM_1
-#define VK_OEM_1      0xBA
-#define VK_OEM_PLUS   0xBB
-#define VK_OEM_COMMA  0xBC
-#define VK_OEM_MINUS  0xBD
-#define VK_OEM_PERIOD 0xBE
-#define VK_OEM_2      0xBF
-#define VK_OEM_3      0xC0
-#define VK_OEM_4      0xDB
-#define VK_OEM_5      0xDC
-#define VK_OEM_6      0xDD
-#define VK_OEM_7      0xDE
-#endif
+// Win32 OEM VKs live in dcwin.h now (shared with the client apps).
 
 #define CL_DESKTOP RGB(0, 128, 128)
 #define CL_FACE    RGB(192, 192, 192)
