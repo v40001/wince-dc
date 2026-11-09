@@ -112,7 +112,8 @@ add_sh_module(dcshell TYPE exe ENTRY WinMainCRTStartup OUT dcshell.exe
   LIBS coredll.lib corelibc.lib ddraw.lib d3dim.lib dinput.lib dxguid.lib mapledev.lib psguid.lib wdm.lib)
 
 # ---- DCWin client apps (each links the client lib) --------------------------------
-foreach(app dcwcalc dcwclock dcwexp dcwtask dcwmem)
+foreach(app dcwcalc dcwclock dcwexp dcwtask dcwmem dcwcmd dcwcpl dcwhelp
+        dcwmail dcwpword dcwterm)
   add_sh_module(${app} TYPE exe ENTRY WinMainCRTStartup OUT ${app}.exe
     SOURCES ${REPO}/shell/${app}.c ${REPO}/shell/dcwlib.c
     LIBS coredll.lib corelibc.lib)

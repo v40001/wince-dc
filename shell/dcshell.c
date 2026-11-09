@@ -81,19 +81,19 @@ typedef struct
 // drag items off the Start menu to add their own; user-added entries are persisted to the
 // VMU. String pointers always point at const tables (defaults here / s_start below), so the
 // live array stores no allocations.
+// The stock CEPC desktop set (QEMU capture): Recycle Bin / Inbox / Microsoft
+// Pocket Word on the top row, My Computer / My Documents / Internet Explorer
+// below - each with the shortcut-arrow overlay the real shell draws.
 static const SHORTCUT s_deskDefault[] = {
     // the stock CE desktop leads with these (CEPC capture): My Computer, Recycle
     // Bin, My Documents (+ Internet Explorer, appended conditionally below) -
     // then our DC-specific extras
+    {L"Recycle Bin", L"\\Recycled", NULL, ICON_BIN, 0, -1, SCMD_NONE, 0},
+    {L"Inbox", NULL, L"dcwmail.exe", ICON_INBOX, 0, -1, SCMD_NONE, 0},
+    {L"Microsoft Pocket Word", NULL, L"dcwpword.exe", ICON_PWORD, 0, -1, SCMD_NONE, 0},
     {L"My Computer", L"\\", NULL, ICON_COMPUTER, 0, -1, SCMD_NONE, 0},
-    {L"Recycle Bin", L"\\", NULL, ICON_BIN, 0, -1, SCMD_NONE, 0},
     {L"My Documents", L"\\My Documents", NULL, ICON_DOCUMENTS, 0, -1, SCMD_NONE, 0},
-    {L"CD-ROM", L"\\CD-ROM", NULL, ICON_DRIVE, 0, -1, SCMD_NONE, 0},
-    {L"Calculator", NULL, L"dcwcalc.exe", ICON_APP, 0, -1, SCMD_NONE, 0},
-    {L"Clock", NULL, L"dcwclock.exe", ICON_CLOCK, 0, -1, SCMD_NONE, 0},
-    {L"Task Manager", NULL, L"dcwtask.exe", ICON_APP, 0, -1, SCMD_NONE, 0},
-    {L"Network", NULL, L"dcwnet.exe", ICON_NET, 0, -1, SCMD_NONE, 0},
-    {L"System Log", NULL, L"dcwlog.exe", ICON_FILE, 0, -1, SCMD_NONE, 0},
+    {L"Internet Explorer", NULL, L"iexplore.exe", ICON_IE, 0, -1, SCMD_NONE, 0},
 };
 #define DEFAULT_N (sizeof(s_deskDefault) / sizeof(s_deskDefault[0]))
 #define MAXDESK   24
@@ -117,17 +117,20 @@ static int s_cDesk = 0;
 // then Command Prompt / Inbox / Internet Explorer / Microsoft Pocket Word /
 // Windows Explorer. Entries without a DC port stay listed but map to the closest
 // client app; our own extras follow after them.
+// Communication cascade (QEMU capture): Remote Networking, Terminal. Remote
+// Networking is the dial-up connections folder - dcwnet is the DC-side RasDial UI.
 static const SHORTCUT s_subComm[] = {
-    {L"Network", NULL, L"dcwnet.exe", ICON_NET, 0, -1, SCMD_NONE, 0},
-    {L"Remote Connections", NULL, L"dcwnet.exe", ICON_NET, 0, -1, SCMD_NONE, 0},
+    {L"Remote Networking", NULL, L"dcwnet.exe", ICON_NET, 0, -1, SCMD_NONE, 0},
+    {L"Terminal", NULL, L"dcwterm.exe", ICON_TERM, 0, -1, SCMD_NONE, 0},
+    {L"Network Diagnostics", NULL, L"dcwnet.exe", ICON_NET, 0, -1, SCMD_NONE, 0},
     {L"System Log", NULL, L"dcwlog.exe", ICON_FILE, 0, -1, SCMD_NONE, 0},
 };
 static const SHORTCUT s_subPrograms[] = {
-    {L"Communication", NULL, NULL, ICON_NET, 0, SUB_COMM, SCMD_NONE, 0},
-    {L"Command Prompt", NULL, L"dcwlog.exe", ICON_CMD, 0, -1, SCMD_NONE, 0},
-    {L"Inbox", NULL, L"dcwlog.exe", ICON_FILE, 0, -1, SCMD_NONE, 0},
+    {L"Communication", NULL, NULL, ICON_COMM, 0, SUB_COMM, SCMD_NONE, 0},
+    {L"Command Prompt", NULL, L"dcwcmd.exe", ICON_CMD, 0, -1, SCMD_NONE, 0},
+    {L"Inbox", NULL, L"dcwmail.exe", ICON_INBOX, 0, -1, SCMD_NONE, 0},
     {L"Internet Explorer", NULL, L"iexplore.exe", ICON_IE, 0, -1, SCMD_NONE, 0},
-    {L"Microsoft Pocket Word", NULL, L"dcwexp.exe", ICON_FILE, 0, -1, SCMD_NONE, 0},
+    {L"Microsoft Pocket Word", NULL, L"dcwpword.exe", ICON_PWORD, 0, -1, SCMD_NONE, 0},
     {L"Windows Explorer", L"\\", NULL, ICON_EXPLORER, 0, -1, SCMD_NONE, 0},
     {NULL, NULL, NULL, 0, 1, -1, 0, 0}, // separator before the DC extras
     {L"Calculator", NULL, L"dcwcalc.exe", ICON_APP, 0, -1, SCMD_NONE, 0},
@@ -144,7 +147,7 @@ static const SHORTCUT s_subDocuments[] = {
     {L"(Empty)", NULL, NULL, 0, 0, -1, SCMD_NONE, 1},
 };
 static const SHORTCUT s_subSettings[] = {
-    {L"Control Panel", NULL, L"dcwmem.exe", ICON_CPL, 0, -1, SCMD_NONE, 0},
+    {L"Control Panel", NULL, L"dcwcpl.exe", ICON_CPL, 0, -1, SCMD_NONE, 0},
     {L"Taskbar", NULL, NULL, ICON_TASKBAR, 0, -1, SCMD_TASKBAROPT, 0},
 };
 
@@ -382,15 +385,17 @@ enum
 	CTXC_REFRESH,
 	CTXC_DISPLAY,
 	CTXC_TASKMGR,
-	CTXC_TASKPROP
+	CTXC_TASKPROP,
+	CTXC_PROP
 };
 typedef struct
 {
 	const WCHAR *pszLabel;
 	int nCmd;
 } CtxItem;
-static const CtxItem s_aCtxIconUser[] = {{L"Open", CTXC_OPEN}, {L"Delete", CTXC_DELETE}};
-static const CtxItem s_aCtxIconBuiltin[] = {{L"Open", CTXC_OPEN}};
+static const CtxItem s_aCtxIconUser[] = {
+    {L"Open", CTXC_OPEN}, {L"Delete", CTXC_DELETE}, {L"Properties", CTXC_PROP}};
+static const CtxItem s_aCtxIconBuiltin[] = {{L"Open", CTXC_OPEN}, {L"Properties", CTXC_PROP}};
 static const CtxItem s_aCtxDesktop[] = {
     {L"Arrange Icons", CTXC_ARRANGE}, {L"Refresh", CTXC_REFRESH}, {L"Properties", CTXC_DISPLAY}};
 // the stock ceshell MENU/109: right-click on the taskbar itself
@@ -436,30 +441,27 @@ static DWORD s_dwCrashSeq = 0; // last DcShared.crash.seq we raised a BSOD for
 static DWORD s_dwBsodAt = 0;   // tick the BSOD was raised (arm delay before it can be dismissed)
 
 // Desktop icon cell positions (top-left of the 96x54 clickable cell). Mutable so icons can
-// be dragged. Built-ins are laid out in a column-major grid by DeskPosInit() (flow top-to-
-// bottom, then wrap into the next column so they never run under the taskbar); user-added
-// icons keep their dropped / persisted position.
+// be dragged. The stock CEPC layout is ROW-major: three shortcuts across the top
+// (Recycle Bin / Inbox / Pocket Word), three on the second row (My Computer /
+// My Documents / Internet Explorer); user-added icons keep their dropped pos.
 static POINT s_aDeskPos[MAXDESK];
 static int s_bDeskPosInit = 0;
-static int s_nDeskRows = 6; // built-in icons per column (computed from the usable height)
+static int s_nDeskCols = 3; // built-in icons per row (the stock set is a 3x2 grid)
 #define ICELL_W 96
 #define ICELL_H 54
 #define DESK_X0 14
-#define DESK_Y0 16
-#define DESK_DY 70             // row pitch
-#define DESK_DX (ICELL_W + 12) // column pitch
+#define DESK_Y0 8
+#define DESK_DX 85 // column pitch (QEMU: ~85px between the real shortcut columns)
+#define DESK_DY 80 // row pitch
 static void DeskPosInit(void)
 {
 	int i, nSlot = 0;
-	s_nDeskRows = (TASK_Y - DESK_Y0) / DESK_DY;
-	if (s_nDeskRows < 1)
-		s_nDeskRows = 1;
 	for (i = 0; i < s_cDesk; i++)
 	{
 		if (s_anDeskUser[i] >= 0)
 			continue; // user icons keep their saved / dropped pos
-		s_aDeskPos[i].x = DESK_X0 + (nSlot / s_nDeskRows) * DESK_DX;
-		s_aDeskPos[i].y = DESK_Y0 + (nSlot % s_nDeskRows) * DESK_DY;
+		s_aDeskPos[i].x = DESK_X0 + (nSlot % s_nDeskCols) * DESK_DX;
+		s_aDeskPos[i].y = DESK_Y0 + (nSlot / s_nDeskCols) * DESK_DY;
 		nSlot++;
 	}
 	s_bDeskPosInit = 1;
@@ -1684,6 +1686,15 @@ static void ContextActivate(void)
 		case CTXC_TASKPROP:
 			OpenTaskbarDialog(); // MENU/109 -> Taskbar Properties
 			break;
+		case CTXC_PROP:
+			// stock behavior: My Computer's Properties opens the System CPL; a file
+			// object's opens Explorer on it. (No separate property sheet port yet.)
+			if (nIcon >= 0 && nIcon < s_cDesk &&
+			    s_aDesk[nIcon].icon == ICON_COMPUTER)
+				LaunchApp(L"dcwcpl.exe", NULL);
+			else if (nIcon >= 0 && nIcon < s_cDesk && s_aDesk[nIcon].path)
+				LaunchApp(L"dcwexp.exe", s_aDesk[nIcon].path);
+			break;
 	}
 	s_bDirty = 1;
 }
@@ -2423,7 +2434,7 @@ static void ActivateShortcut(const SHORTCUT *pShc)
 		switch (pShc->cmd)
 		{
 			case SCMD_HELP:
-				LaunchApp(L"dcwexp.exe", L"\\Windows"); // browse the ROM dir (no help data)
+				LaunchApp(L"dcwhelp.exe", NULL); // the peghelp port
 				break;
 			case SCMD_RUN:
 				OpenRunDialog();

@@ -173,6 +173,10 @@ static const WCHAR *const s_aIcoName[ICON_COUNT] = {
     L"explorer",   // ICON_EXPLORER
     L"cmdprompt",  // ICON_CMD
     L"sip",        // ICON_SIP
+    L"comm",       // ICON_COMM
+    L"inbox",      // ICON_INBOX
+    L"pword",      // ICON_PWORD
+    L"term",       // ICON_TERM
 };
 
 // 16x16 icons as ASCII art (' ' = transparent).
@@ -268,6 +272,22 @@ static const char *s_aIconArt[ICON_COUNT][16] = {
      "", "     KKKKK", "    KBWWWWK", "   KWWWWWWK", "  KWWWKKWWK",
      "  KWWKKYWWK", "  KWKYYWWWK", "  KKYWWWWWK", "  KYWWWWWWK", "   KKKKKKK",
      "   BWWWWWWWK", "   BKWWWWK", "    KKKKK", "", "", ""},
+    {// ICON_COMM - folder w/ modem
+     "", " KKKKKKK", " KYYYYYYKKKK", " KYYYYYYYYYYK", " KYYYYYYYYYYK",
+     " KYKKKKKKKYYK", " KYKWWWWWKYK", " KYKWKKKWKYK", " KYKWWWWWKYK",
+     " KYKKKKKKKYK", " KYYYYYYYYYK", " KKKKKKKKKKK", "", "", "", ""},
+    {// ICON_INBOX - envelope
+     "", " KKKKKKKKKKK", " KWWWWWWWWWK", " KWKWWWWW KWK", " KWWKWWWKWWK",
+     " KWWWKWKWWWK", " KWWWWKWWWWK", " KWWWWWWWWWK", " KWWWWWWWWWK",
+     " KKKKKKKKKKK", "", "", "", "", "", ""},
+    {// ICON_PWORD - W on a page
+     "", "  KKKKKKKK", "  KWWWWWWK", "  KWWWWWWK", "  KWKKKKWK",
+     "  KWKKKKWK", "  KWKWKKWK", "  KWKWKKWK", "  KWKWWKWK", "  KKKKKKKK",
+     "", "", "", "", "", ""},
+    {// ICON_TERM - screen w/ >_
+     "", " KKKKKKKKKKK", " KWWWWWWWWWK", " KWKWWWWWWWK", " KWYKWWWWWWK",
+     " KWYYKWWWWWK", " KWYKWWWWWWK", " KWWWWKKKWWK", " KWWWWWWWWWK",
+     " KKKKKKKKKKK", "    KKKKK", "", "", "", "", ""},
 };
 
 static COLORREF PalColor(char c)

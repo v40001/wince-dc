@@ -48,7 +48,11 @@
 #define ICON_EXPLORER 22 // Windows Explorer (window + magnifier)
 #define ICON_CMD      23 // Command Prompt (console window)
 #define ICON_SIP      24 // soft input panel (pencil on page, taskbar tray)
-#define ICON_COUNT    25
+#define ICON_COMM     25 // Communication cascade (folder w/ modem)
+#define ICON_INBOX    26 // Inbox (envelope)
+#define ICON_PWORD    27 // Pocket Word (W page)
+#define ICON_TERM     28 // Terminal (screen w/ >_)
+#define ICON_COUNT    29
 
 typedef struct
 {
