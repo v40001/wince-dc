@@ -18,9 +18,18 @@
 #include "vmustore.h"
 
 #define TASK_H     26
-#define ROW_H      36 // Start-menu row height (stock CE menu rows are tall touch targets)
 #define TASK_Y     (SCREEN_H - TASK_H)
-#define MENU_W     168
+
+// Start-menu metrics lifted 1:1 from the stock ceshell item layout (HPC2000.BIN module,
+// menu draw @rva 0xb94e / measure @rva 0xb812): rows are SM_CYSMICON+6 = 22 px, separator
+// rows are 7 px with the groove drawn inset, icons are 16x16 at (item.left+4, item.top+3),
+// text starts at item.left+24 and is vertically centered with an 8 px right inset for the
+// submenu glyph zone. The root menu prepends the 26-px banner strip, and the banner bitmap
+// is BitBlt'd 1:1 anchored to the strip bottom (top clipped when the menu is shorter).
+#define ROW_H      22
+#define SEP_H      7
+#define STRIP_W    26
+#define MENU_PAD   2
 
 #define CL_DESKTOP RGB(0, 128, 128)
 #define CL_FACE    RGB(192, 192, 192)
@@ -64,21 +73,65 @@ static const SHORTCUT s_start[] = {
     {L"CD-ROM", L"\\CD-ROM", NULL, ICON_DRIVE, 0},
     {L"Task Manager", NULL, L"dcwtask.exe", ICON_APP, 0},
     {L"Crash Test", NULL, L"dcwtask.exe crash", ICON_APP, 0},
-    {L"Shut Down...", NULL, NULL, ICON_POWER, 1}, // separator above, like CE's "Suspend"
+    {NULL, NULL, NULL, 0, 1}, // 7px etched separator row, like the stock menu's before "Suspend"
+    {L"Shut Down...", NULL, NULL, ICON_POWER, 0},
 };
 #define START_N (sizeof(s_start) / sizeof(s_start[0]))
 
-// Width of the vertical "Windows CE" brand strip along the left edge of the open Start menu
-// (the stock ceshell bitmap, loaded as \Windows\startban.bmp). 0 when the bitmap isn't
-// staged -> the menu falls back to the plain look. The stock shell reserves a strip twice
-// the bitmap's native width and stretches the image to the menu's full height.
+// Width of the vertical "Windows CE" brand strip along the left edge of the open Start
+// menu (the stock ceshell bitmap, loaded as \Windows\startban.bmp). The stock shell gives
+// the strip the bitmap's native width (26) - it is BitBlt'd 1:1, never stretched.
+// 0 when the bitmap isn't staged -> the menu falls back to the plain look.
 static int StartMenuStrip(void)
 {
 	int nBanW = 0, nBanH = 0;
 	GfxBannerSize(&nBanW, &nBanH);
 	if (nBanW <= 0 || nBanH <= 0)
 		return 0;
-	return nBanW * 2;
+	return nBanW;
+}
+
+// Total height of the Start menu's item area: SM_CYSMICON+6 rows plus SEP_H separator
+// rows (the stock layout adds a thin border around this).
+static int StartMenuContentH(void)
+{
+	int i, h = 0;
+	for (i = 0; i < (int)START_N; i++)
+		h += s_start[i].sep ? SEP_H : ROW_H;
+	return h;
+}
+
+// Width of the item area = SM_CXSMICON(16) + max text width (clamped to 200, the stock
+// layout's 0xC8) + 16. The strip goes on the left of this.
+static int StartMenuItemW(void)
+{
+	int i, w = 0;
+	for (i = 0; i < (int)START_N; i++)
+	{
+		int t;
+		if (!s_start[i].label)
+			continue;
+		t = GfxTextWidth(g_FontUI, s_start[i].label);
+		if (t > 200)
+			t = 200;
+		if (t > w)
+			w = t;
+	}
+	return w + 32;
+}
+
+// Content-relative y -> item index, -1 for separators/outside (rows are variable-height).
+static int StartItemAtY(int y)
+{
+	int i, yy = 0;
+	for (i = 0; i < (int)START_N; i++)
+	{
+		int ih = s_start[i].sep ? SEP_H : ROW_H;
+		if (y >= yy && y < yy + ih)
+			return s_start[i].sep ? -1 : i;
+		yy += ih;
+	}
+	return -1;
 }
 
 // --- right-click context menu (LT+A on the pad, or the DC mouse's right button) ---
@@ -1123,27 +1176,33 @@ static void RenderTaskbarFills(void)
 
 	if (s_bMenuOpen)
 	{
-		int h = (int)START_N * ROW_H + 8;
-		int my = TASK_Y - h + 4, i;
 		int nStrip = StartMenuStrip();
-		SetRect(&rc, 4, TASK_Y - h, 4 + MENU_W + nStrip, TASK_Y);
+		int nItemW = StartMenuItemW();
+		int nContH = StartMenuContentH();
+		int my = TASK_Y - nContH - MENU_PAD * 2; // menu top (2px frame around the items)
+		int ix = 2 + MENU_PAD + nStrip, ir = 2 + MENU_PAD + nStrip + nItemW;
+		int i, y;
+		SetRect(&rc, 2, my, ir + MENU_PAD, TASK_Y);
 		GfxFill(rc.left, rc.top, rc.right, rc.bottom, CL_FACE);
 		GfxBevel(&rc, TRUE);
 		if (nStrip)
-			GfxBlitBanner(5, TASK_Y - h + 1, nStrip, h - 2); // brand strip, edge to edge
-		if (s_nMenuSel >= 0 && s_nMenuSel < (int)START_N)
-			GfxFill(8 + nStrip, my + s_nMenuSel * ROW_H, MENU_W + nStrip,
-			        my + (s_nMenuSel + 1) * ROW_H, CL_SEL);
+			GfxBlitBanner(2 + MENU_PAD, my + MENU_PAD, STRIP_W, nContH); // 1:1, bottom-anchored
+		y = my + MENU_PAD;
 		for (i = 0; i < (int)START_N; i++)
 		{
+			int ih = s_start[i].sep ? SEP_H : ROW_H;
 			if (s_start[i].sep) // etched groove, like the stock menu's before "Suspend"
 			{
-				GfxFill(8 + nStrip, my + i * ROW_H + 1, MENU_W + nStrip,
-				        my + i * ROW_H + 2, RGB(128, 128, 128));
-				GfxFill(8 + nStrip, my + i * ROW_H + 2, MENU_W + nStrip,
-				        my + i * ROW_H + 3, RGB(255, 255, 255));
+				GfxFill(ix, y + 2, ir, y + 3, RGB(128, 128, 128));
+				GfxFill(ix, y + 3, ir, y + 4, RGB(255, 255, 255));
 			}
-			GfxIcon(s_start[i].icon, 10 + nStrip, my + i * ROW_H + (ROW_H - 16) / 2);
+			else
+			{
+				if (i == s_nMenuSel)
+					GfxFill(ix, y, ir, y + ih, CL_SEL);
+				GfxIcon(s_start[i].icon, ix + 4, y + 3);
+			}
+			y += ih;
 		}
 	}
 }
@@ -1178,15 +1237,21 @@ static void RenderBarsText(HDC hdc)
 
 	if (s_bMenuOpen)
 	{
-		int h = (int)START_N * ROW_H + 8;
-		int my = TASK_Y - h + 4;
 		int nStrip = StartMenuStrip();
+		int my = TASK_Y - StartMenuContentH() - MENU_PAD * 2;
+		int ix = 2 + MENU_PAD + nStrip;
+		int y = my + MENU_PAD;
 		for (i = 0; i < (int)START_N; i++)
 		{
-			COLORREF fg = (i == s_nMenuSel) ? CL_WHITE : CL_TEXT;
-			COLORREF bg = (i == s_nMenuSel) ? CL_SEL : CL_FACE;
-			GfxText(hdc, 30 + nStrip, my + i * ROW_H + (ROW_H - 14) / 2, fg, bg, g_FontUI,
-			        s_start[i].label);
+			int ih = s_start[i].sep ? SEP_H : ROW_H;
+			if (!s_start[i].sep)
+			{
+				COLORREF fg = (i == s_nMenuSel) ? CL_WHITE : CL_TEXT;
+				COLORREF bg = (i == s_nMenuSel) ? CL_SEL : CL_FACE;
+				GfxText(hdc, ix + 24, y + (ih - 14) / 2, fg, bg, g_FontUI,
+				        s_start[i].label);
+			}
+			y += ih;
 		}
 	}
 }
@@ -1520,9 +1585,9 @@ static void OnKey(WPARAM wParam)
 	if (s_bMenuOpen)
 	{
 		if (wParam == VK_UP && s_nMenuSel > 0)
-			s_nMenuSel--;
+			do { s_nMenuSel--; } while (s_nMenuSel > 0 && s_start[s_nMenuSel].sep);
 		if (wParam == VK_DOWN && s_nMenuSel < (int)START_N - 1)
-			s_nMenuSel++;
+			do { s_nMenuSel++; } while (s_nMenuSel < (int)START_N - 1 && s_start[s_nMenuSel].sep);
 		if (wParam == VK_RETURN)
 			ActivateStartItem();
 		if (wParam == VK_ESCAPE)
@@ -1624,15 +1689,20 @@ static int HandleClick(int x, int y)
 	}
 	if (s_bMenuOpen)
 	{
-		int h = (int)START_N * ROW_H + 8, my = TASK_Y - h + 4;
-		int nStrip = StartMenuStrip();
+		int nStrip = StartMenuStrip(), nItemW = StartMenuItemW();
+		int nContH = StartMenuContentH(), my = TASK_Y - nContH - MENU_PAD * 2;
+		int ix = 2 + MENU_PAD + nStrip, ir = ix + nItemW, cy0 = my + MENU_PAD;
+		int nRow;
 		// the brand strip itself isn't clickable - a click there dismisses, like stock CE
-		if (x >= 8 + nStrip && x < 4 + MENU_W + nStrip && y >= my &&
-		    y < my + (int)START_N * ROW_H)
+		if (x >= ix && x < ir && y >= cy0 && y < cy0 + nContH)
 		{
-			s_nMenuSel = (y - my) / ROW_H;
-			ActivateStartItem();
-			return 1;
+			nRow = StartItemAtY(y - cy0);
+			if (nRow >= 0)
+			{
+				s_nMenuSel = nRow;
+				ActivateStartItem();
+			}
+			return 1; // a click inside the menu (separator/strip zone) doesn't dismiss
 		}
 		s_bMenuOpen = 0; // click elsewhere closes the menu
 		return 1;
@@ -1728,13 +1798,13 @@ static void DragHitTest(int x, int y)
 
 	if (s_bMenuOpen) // grabbing a Start-menu row -> drag-to-desktop
 	{
-		int h = (int)START_N * ROW_H + 8, my = TASK_Y - h + 4, nRow;
-		int nStrip = StartMenuStrip();
-		if (x >= 8 + nStrip && x < 4 + MENU_W + nStrip && y >= my &&
-		    y < my + (int)START_N * ROW_H)
+		int nStrip = StartMenuStrip(), nItemW = StartMenuItemW(), nRow;
+		int nContH = StartMenuContentH(), my = TASK_Y - nContH - MENU_PAD * 2;
+		int ix = 2 + MENU_PAD + nStrip, ir = ix + nItemW, cy0 = my + MENU_PAD;
+		if (x >= ix && x < ir && y >= cy0 && y < cy0 + nContH)
 		{
-			nRow = (y - my) / ROW_H;
-			if (nRow >= 0 && nRow < (int)START_N && (s_start[nRow].exe || s_start[nRow].path))
+			nRow = StartItemAtY(y - cy0);
+			if (nRow >= 0 && (s_start[nRow].exe || s_start[nRow].path))
 			{
 				s_nDragKind = DRAG_STARTITEM;
 				s_nDragTarget = nRow;
@@ -2094,13 +2164,14 @@ int WINAPI WinMain(HINSTANCE hInst, HINSTANCE hPrev, LPWSTR lpszCmd, int nShow)
 				else if (bMoved &&
 				         s_bMenuOpen) // Start menu open: highlight the item under the cursor
 				{
-					int h = (int)START_N * ROW_H + 8, my = TASK_Y - h + 4;
-					int nStrip = StartMenuStrip();
-					if (s_nCx >= 8 + nStrip && s_nCx < 4 + MENU_W + nStrip &&
-					    s_nCy >= my && s_nCy < my + (int)START_N * ROW_H)
+					int nStrip = StartMenuStrip(), nItemW = StartMenuItemW();
+					int nContH = StartMenuContentH(), my = TASK_Y - nContH - MENU_PAD * 2;
+					int ix = 2 + MENU_PAD + nStrip, ir = ix + nItemW, cy0 = my + MENU_PAD;
+					if (s_nCx >= ix && s_nCx < ir &&
+					    s_nCy >= cy0 && s_nCy < cy0 + nContH)
 					{
-						int nRow = (s_nCy - my) / ROW_H;
-						if (nRow >= 0 && nRow < (int)START_N && nRow != s_nMenuSel)
+						int nRow = StartItemAtY(s_nCy - cy0);
+						if (nRow >= 0 && nRow != s_nMenuSel)
 						{
 							s_nMenuSel = nRow;
 							s_bDirty = 1;
@@ -2148,11 +2219,10 @@ int WINAPI WinMain(HINSTANCE hInst, HINSTANCE hPrev, LPWSTR lpszCmd, int nShow)
 					}
 					else if (s_nDragKind == DRAG_STARTITEM && s_nDragTarget >= 0)
 					{
-						int h = (int)START_N * ROW_H + 8, my = TASK_Y - h + 4;
+						int nTop = TASK_Y - StartMenuContentH() - MENU_PAD * 2;
+						int nRight = 2 + MENU_PAD * 2 + StartMenuStrip() + StartMenuItemW();
 						if (s_nCy < TASK_Y &&
-						    (s_nCy < my ||
-						     s_nCx >= 4 + MENU_W +
-						                   StartMenuStrip())) // dropped on the desktop
+						    (s_nCy < nTop || s_nCx >= nRight)) // dropped on the desktop
 							AddDesktopShortcut(s_nDragTarget, s_nCx, s_nCy);
 						s_bMenuOpen = 0;
 					}

@@ -1701,13 +1701,19 @@ void GfxBannerSize(int *w, int *h)
 		*h = s_nBanH;
 }
 
-// Queue the banner scaled into a dst rect (the Start menu sizes it to its own height).
+// Queue the banner bitmap like the stock shell's BitBlt: 1:1 at its native size, anchored
+// to the BOTTOM of the dst strip. A menu shorter than the bitmap clips the bitmap's top
+// rows; a taller one leaves strip background above (the caller FillRects the strip first).
 void GfxBlitBanner(int dx, int dy, int dw, int dh)
 {
+	int h;
+	float v0;
 	if (!s_hBan || s_nBanW <= 0 || s_nBanH <= 0 || dw <= 0 || dh <= 0)
 		return;
-	PushQuad((float)dx, (float)dy, (float)(dx + dw), (float)(dy + dh), 0.0f, 0.0f,
-	         (float)s_nBanW / BAN_TW, (float)s_nBanH / BAN_TH, 0xFFFFFFFF, 4);
+	h = dh < s_nBanH ? dh : s_nBanH;
+	v0 = (float)(s_nBanH - h) / BAN_TH;
+	PushQuad((float)dx, (float)(dy + dh - h), (float)(dx + dw), (float)(dy + dh),
+	         0.0f, v0, (float)s_nBanW / BAN_TW, (float)s_nBanH / BAN_TH, 0xFFFFFFFF, 4);
 }
 
 static DWORD s_dwLastExit = 0; // exit code of the last GfxLaunch'd app (crash code if it faulted)
