@@ -98,6 +98,11 @@ FILES
 
    default.fdf     $(_FLATRELEASEDIR)\default.fdf                           NK  SH
    arial.ttf       $(_FLATRELEASEDIR)$(RELEASEDIR_OS)arial.ttf              NK  SHU
+   tahoma.ttf      $(_FLATRELEASEDIR)$(RELEASEDIR_OS)tahoma.ttf             NK  SHU
+
+; the dcico_*.ico / wince.bmp shell-asset FILES lines are appended to the work-dir copy of
+; this file by cmake/prep-image.cmake when shell/assets/ is populated (extracted CE
+; resources - they live in their own commit so upstream PRs can exclude them).
 
 
 

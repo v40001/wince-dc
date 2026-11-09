@@ -17,7 +17,7 @@ int DcwMain(HINSTANCE hInst, LPWSTR lpCmd)
 	LONG lLastHead = -1;
 	int nScroll = 0;
 
-	w = DCWinOpen(60, 60, LW, LH, L"System Log", ICON_APP);
+	w = DCWinOpen(60, 60, LW, LH, L"System Log", ICON_FILE);
 	if (!w)
 	{
 		OutputDebugStringW(L"DCWLOG: DCWinOpen failed\r\n");

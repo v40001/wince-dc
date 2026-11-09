@@ -1,0 +1,35 @@
+# CI build of the CE ROM + bootable GDI on a Windows runner (the vendored cl.exe/shasm/makeimg
+# are 32-bit PE tools - they can't run on macOS/Linux hosts). Download the `wince-dc-image`
+# artifact for disc.gdi + tracks (Flycast) and the raw 0winceos*.bin images.
+name: build
+on:
+  workflow_dispatch:
+  push:
+
+jobs:
+  image:
+    runs-on: windows-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Install ninja
+        run: choco install ninja --no-progress -y
+
+      - name: Configure
+        run: cmake -G Ninja -S . -B build
+
+      # `gdi` depends on the whole chain: all modules -> both makeimg runs (lean + IMGHTML)
+      # -> wrap-image -> disc.gdi
+      - name: Build disc image
+        run: cmake --build build --target gdi
+
+      - name: Upload image artifacts
+        uses: actions/upload-artifact@v4
+        with:
+          name: wince-dc-image
+          path: |
+            build/disc/disc.gdi
+            build/disc/track*.bin
+            build/0winceos.bin
+            build/0winceoshtml.bin
+          if-no-files-found: error

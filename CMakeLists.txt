@@ -239,7 +239,8 @@ message(STATUS "image: HTML(IMGHTML)=${HTML}")
 # Prep the work-dir (seed + optional debug overlay + our modules + Autorun) then makeimg.
 add_custom_command(OUTPUT ${NKBIN}
   COMMAND ${CMAKE_COMMAND} -DSEED=${IMG_SEED} -DWORK=${IMG_WORK} -DDEBUG_DIR=${IMG_DEBUG_DIR}
-          -DAUTORUN=${AUTORUN} -DMODS=${MODS_BAR} -P ${REPO}/cmake/prep-image.cmake
+          -DAUTORUN=${AUTORUN} -DMODS=${MODS_BAR} -DASSETS=${REPO}/shell/assets
+          -P ${REPO}/cmake/prep-image.cmake
   COMMAND ${CMAKE_COMMAND} -E env --modify "PATH=path_list_prepend:${SDK}/tools"
           ${IMG_ENV} -- "${SDK}/tools/makeimg.exe"
   WORKING_DIRECTORY ${IMG_WORK}
@@ -280,7 +281,8 @@ if(IEIMAGE)
   # DEPENDS ${NKBIN} serialises the two makeimg runs (they share SDK tool temp state).
   add_custom_command(OUTPUT ${NKBIN_HTML}
     COMMAND ${CMAKE_COMMAND} -DSEED=${IMG_SEED} -DWORK=${IMG_WORK_HTML} -DDEBUG_DIR=${IMG_DEBUG_DIR}
-            -DAUTORUN=dcshell.exe -DMODS=${MODS_BAR} -P ${REPO}/cmake/prep-image.cmake
+            -DAUTORUN=dcshell.exe -DMODS=${MODS_BAR} -DASSETS=${REPO}/shell/assets
+            -P ${REPO}/cmake/prep-image.cmake
     COMMAND ${CMAKE_COMMAND} -E env --modify "PATH=path_list_prepend:${SDK}/tools"
             ${IMG_ENV_HTML} -- "${SDK}/tools/makeimg.exe"
     WORKING_DIRECTORY ${IMG_WORK_HTML}

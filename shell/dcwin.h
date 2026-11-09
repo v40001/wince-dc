@@ -31,7 +31,11 @@
 #define ICON_SWIRL    6 // Dreamcast swirl (My Dreamcast)
 #define ICON_CURSOR   7 // pointer arrow
 #define ICON_IE       8 // Internet Explorer globe (IMGHTML image only)
-#define ICON_COUNT    9
+#define ICON_START    9  // Windows CE flag (Start button)
+#define ICON_BIN      10 // Recycle Bin
+#define ICON_NET      11 // network connections
+#define ICON_POWER    12 // power plug (Suspend / Shut Down)
+#define ICON_COUNT    13
 
 typedef struct
 {
