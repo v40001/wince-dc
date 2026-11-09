@@ -147,6 +147,7 @@ static int s_nSubRoot = -1;
 static int s_nSubSel = -1;
 static int s_nHoverSub = -1;
 static DWORD s_dwHoverAt = 0;
+static int s_bDirty = 1; // declared early - the cascade helpers below set it
 
 // Cascade item lists by SUB_* id (the stock shell fills these from folders).
 static const SHORTCUT *SubItems(int nSub, int *pn)
@@ -326,7 +327,6 @@ static int s_nCtxIcon = -1;          // desktop-icon index this menu acts on (-1
 static int s_nDeskSel = 0;
 static int s_bMenuOpen = 0;
 static int s_nMenuSel = 0;
-static int s_bDirty = 1;
 static void CloseStartMenu(void); // Start menu + its cascade are one popup tree
 static void OpenRunDialog(void);    // "Run..." -> stock Run dialog
 static void OpenTaskbarDialog(void);// Settings -> Taskbar -> Taskbar Properties
