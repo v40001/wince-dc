@@ -21,16 +21,17 @@ if(ASSETS)
   if(EXISTS "${ASSETS}/wince.bmp")
     list(APPEND _assets "${ASSETS}/wince.bmp")
   endif()
-  # Stage the extracted-CE shell assets and declare them in the work-dir ce.bib. The seed copy
+  # Stage the extracted-CE shell assets and declare them in the work-dir gemini.bib (the
+  # platform .bib fmerge actually reads - ce.bib is not in the _DEPTREES merge). The seed copy
   # is re-copied from a pristine vendor tree every run, so the appends never accumulate; with
   # no assets present the .bib stays untouched and the shell uses its procedural fallback art.
   if(_assets)
     file(COPY ${_assets} DESTINATION "${WORK}/OS")
-    file(APPEND "${WORK}/ce.bib"
+    file(APPEND "${WORK}/gemini.bib"
       "\n; dcshell stock-CE desktop assets (staged by prep-image from shell/assets)\n")
     foreach(f ${_assets})
       get_filename_component(n "${f}" NAME)
-      file(APPEND "${WORK}/ce.bib"
+      file(APPEND "${WORK}/gemini.bib"
         "   ${n}  $(_FLATRELEASEDIR)$(RELEASEDIR_OS)${n}  NK  SHU\n")
     endforeach()
   endif()

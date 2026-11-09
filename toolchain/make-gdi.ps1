@@ -33,8 +33,9 @@ if (-not (Test-Path $ipBin)) {
   $b = [IO.File]::ReadAllBytes($src)
   $name = [Text.Encoding]::ASCII.GetBytes("0WINCEOS.BIN    ") # bootfile field @0x60, 16 bytes
   [Array]::Copy($name, 0, $b, 0x60, 16)
+  $b[0x3E] = [byte][char]'1'   # wince flag @0x3E: reios split-loads the CE image (0x800 hdr -> 0x8CE01000)
   [IO.File]::WriteAllBytes($ipBin, $b)
-  Write-Host "ip.bin: synthesized from SDK ipkit sample (bootfile=0WINCEOS.BIN) -> $ipBin"
+  Write-Host "ip.bin: synthesized from SDK ipkit sample (bootfile=0WINCEOS.BIN, wince=1) -> $ipBin"
 }
 
 $data = Join-Path $OutDir "data"
