@@ -85,6 +85,17 @@ static void DrawTb(DCWin *w, int nCw)
 }
 
 // Wrap psz into <= CW columns starting at y0; returns rows used.
+static void CpyN(WCHAR *pDst, const WCHAR *pSrc, int n)
+{
+	int i = 0;
+	while (i < n - 1 && pSrc[i])
+	{
+		pDst[i] = pSrc[i];
+		i++;
+	}
+	pDst[i] = 0;
+}
+
 static int PutWrapped(DCWin *w, int x, int y, const WCHAR *psz, int nCw,
                       int nMaxY)
 {
@@ -102,7 +113,7 @@ static int PutWrapped(DCWin *w, int x, int y, const WCHAR *psz, int nCw,
 		}
 		if (psz[nTake] && psz[nTake] != L'\n' && nLast > 0)
 			nTake = nLast + 1;
-		lstrcpynW(sz, psz, nTake + 1);
+		CpyN(sz, psz, nTake + 1);
 		sz[nTake] = 0;
 		while (nTake > 0 && sz[nTake - 1] == L' ')
 			sz[--nTake] = 0;

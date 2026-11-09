@@ -20,6 +20,18 @@ static WCHAR s_szIn[LINW];
 static int s_nIn = 0;
 static int s_nHist = 0; // scrollback offset
 
+// lstrcpynW isn't in the CE 2.x coredll - copy at most n-1 chars + NUL.
+static void CpyN(WCHAR *pDst, const WCHAR *pSrc, int n)
+{
+	int i = 0;
+	while (i < n - 1 && pSrc[i])
+	{
+		pDst[i] = pSrc[i];
+		i++;
+	}
+	pDst[i] = 0;
+}
+
 static void Put(const WCHAR *psz)
 {
 	int n = 0;
@@ -96,7 +108,7 @@ static void NormPath(WCHAR *p)
 		while (*pEnd && *pEnd != L'\\')
 			pEnd++;
 		n = (int)(pEnd - pSeg);
-		lstrcpynW(szSeg, pSeg, n + 1);
+		CpyN(szSeg, pSeg, n + 1);
 		szSeg[n] = 0;
 		if (!lstrcmpW(szSeg, L".."))
 		{
@@ -217,7 +229,7 @@ static void CmdCopy(const WCHAR *pArgs)
 		Put(L"The syntax of the command is incorrect.");
 		return;
 	}
-	lstrcpynW(szFrom, pArgs, (int)(pSp - pArgs) + 1);
+	CpyN(szFrom, pArgs, (int)(pSp - pArgs) + 1);
 	szFrom[pSp - pArgs] = 0;
 	while (*pSp == L' ')
 		pSp++;
@@ -344,7 +356,7 @@ static void ExecLine(void)
 			Put(L"The syntax of the command is incorrect.");
 			return;
 		}
-		lstrcpynW(szPath, szArg, (int)(pSp - szArg) + 1);
+		CpyN(szPath, szArg, (int)(pSp - szArg) + 1);
 		szPath[pSp - szArg] = 0;
 		while (*pSp == L' ')
 			pSp++;
