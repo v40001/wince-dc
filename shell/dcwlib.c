@@ -144,6 +144,18 @@ void DCWinIcon(DCWin *pWin, int x, int y, int iconId)
 	pCmd->color = (DWORD)iconId;
 }
 
+void DCWinIconBig(DCWin *pWin, int x, int y, int iconId)
+{
+	DcCmd *pCmd;
+	if (pWin->buildN >= DCWIN_MAXCMD)
+		return;
+	pCmd = &pWin->build[pWin->buildN++];
+	pCmd->op = DCOP_ICONBIG;
+	pCmd->x = x;
+	pCmd->y = y;
+	pCmd->color = (DWORD)iconId;
+}
+
 void DCWinEndFrame(DCWin *pWin)
 {
 	int i;

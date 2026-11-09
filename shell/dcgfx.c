@@ -172,6 +172,7 @@ static const WCHAR *const s_aIcoName[ICON_COUNT] = {
     L"taskbar",    // ICON_TASKBAR
     L"explorer",   // ICON_EXPLORER
     L"cmdprompt",  // ICON_CMD
+    L"sip",        // ICON_SIP
 };
 
 // 16x16 icons as ASCII art (' ' = transparent).
@@ -263,6 +264,10 @@ static const char *s_aIconArt[ICON_COUNT][16] = {
      "", "  KKKKKKKKKK", " KBBBBBBBBBK", " KKKKKKKKKKK", " KWWWWWWWWWK",
      " KWKWWWWWWWK", " KWWSWWWWWWK", " KWWWWWWWWWK", " KWWWWWWWWWK", " KWWWWWWWWWK",
      " KKKKKKKKKKK", "", "", "", "", ""},
+    {// ICON_SIP - pencil on a page
+     "", "     KKKKK", "    KBWWWWK", "   KWWWWWWK", "  KWWWKKWWK",
+     "  KWWKKYWWK", "  KWKYYWWWK", "  KKYWWWWWK", "  KYWWWWWWK", "   KKKKKKK",
+     "   BWWWWWWWK", "   BKWWWWK", "    KKKKK", "", "", ""},
 };
 
 static COLORREF PalColor(char c)

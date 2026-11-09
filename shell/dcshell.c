@@ -31,6 +31,10 @@
 #define STRIP_W    26
 #define MENU_PAD   2
 
+// Stock CE caption: a 22px navy bar (measured off the CEPC build's Run dialog), with
+// ~14px-wide bevelled close/min/max boxes tucked to its right edge.
+#define CAPT_H     22
+
 // Win32 OEM VKs for punctuation keys; CE 2.12's winuser.h doesn't ship them (dcinput
 // maps the DC keyboard's punctuation DIKs to these).
 #ifndef VK_OEM_1
@@ -78,8 +82,12 @@ typedef struct
 // VMU. String pointers always point at const tables (defaults here / s_start below), so the
 // live array stores no allocations.
 static const SHORTCUT s_deskDefault[] = {
-    {L"My Dreamcast", L"\\", NULL, ICON_SWIRL, 0, -1, SCMD_NONE, 0},
+    // the stock CE desktop leads with these (CEPC capture): My Computer, Recycle
+    // Bin, My Documents (+ Internet Explorer, appended conditionally below) -
+    // then our DC-specific extras
+    {L"My Computer", L"\\", NULL, ICON_COMPUTER, 0, -1, SCMD_NONE, 0},
     {L"Recycle Bin", L"\\", NULL, ICON_BIN, 0, -1, SCMD_NONE, 0},
+    {L"My Documents", L"\\My Documents", NULL, ICON_DOCUMENTS, 0, -1, SCMD_NONE, 0},
     {L"CD-ROM", L"\\CD-ROM", NULL, ICON_DRIVE, 0, -1, SCMD_NONE, 0},
     {L"Calculator", NULL, L"dcwcalc.exe", ICON_APP, 0, -1, SCMD_NONE, 0},
     {L"Clock", NULL, L"dcwclock.exe", ICON_CLOCK, 0, -1, SCMD_NONE, 0},
@@ -102,17 +110,30 @@ static int s_cDesk = 0;
 #define SUB_FAVORITES 1
 #define SUB_DOCUMENTS 2
 #define SUB_SETTINGS  3
-#define SUB_COUNT     4
+#define SUB_COMM      4 // nested cascade inside Programs
+#define SUB_COUNT     5
 
+// The stock Programs cascade (CEPC capture): a nested "Communication" submenu,
+// then Command Prompt / Inbox / Internet Explorer / Microsoft Pocket Word /
+// Windows Explorer. Entries without a DC port stay listed but map to the closest
+// client app; our own extras follow after them.
+static const SHORTCUT s_subComm[] = {
+    {L"Network", NULL, L"dcwnet.exe", ICON_NET, 0, -1, SCMD_NONE, 0},
+    {L"Remote Connections", NULL, L"dcwnet.exe", ICON_NET, 0, -1, SCMD_NONE, 0},
+    {L"System Log", NULL, L"dcwlog.exe", ICON_FILE, 0, -1, SCMD_NONE, 0},
+};
 static const SHORTCUT s_subPrograms[] = {
-    {L"Windows Explorer", L"\\", NULL, ICON_EXPLORER, 0, -1, SCMD_NONE, 0},
+    {L"Communication", NULL, NULL, ICON_NET, 0, SUB_COMM, SCMD_NONE, 0},
+    {L"Command Prompt", NULL, L"dcwlog.exe", ICON_CMD, 0, -1, SCMD_NONE, 0},
+    {L"Inbox", NULL, L"dcwlog.exe", ICON_FILE, 0, -1, SCMD_NONE, 0},
     {L"Internet Explorer", NULL, L"iexplore.exe", ICON_IE, 0, -1, SCMD_NONE, 0},
+    {L"Microsoft Pocket Word", NULL, L"dcwexp.exe", ICON_FILE, 0, -1, SCMD_NONE, 0},
+    {L"Windows Explorer", L"\\", NULL, ICON_EXPLORER, 0, -1, SCMD_NONE, 0},
+    {NULL, NULL, NULL, 0, 1, -1, 0, 0}, // separator before the DC extras
     {L"Calculator", NULL, L"dcwcalc.exe", ICON_APP, 0, -1, SCMD_NONE, 0},
     {L"Clock", NULL, L"dcwclock.exe", ICON_CLOCK, 0, -1, SCMD_NONE, 0},
     {L"Task Manager", NULL, L"dcwtask.exe", ICON_APP, 0, -1, SCMD_NONE, 0},
     {L"System", NULL, L"dcwmem.exe", ICON_CPL, 0, -1, SCMD_NONE, 0},
-    {L"Network", NULL, L"dcwnet.exe", ICON_NET, 0, -1, SCMD_NONE, 0},
-    {L"System Log", NULL, L"dcwlog.exe", ICON_FILE, 0, -1, SCMD_NONE, 0},
     {L"Music Player", NULL, L"dcwplay.exe", ICON_APP, 0, -1, SCMD_NONE, 0},
     {L"Crash Test", NULL, L"dcwtask.exe crash", ICON_APP, 0, -1, SCMD_NONE, 0},
 };
@@ -147,6 +168,10 @@ static int s_nSubRoot = -1;
 static int s_nSubSel = -1;
 static int s_nHoverSub = -1;
 static DWORD s_dwHoverAt = 0;
+static int s_nSub2Root = -1; // nested cascade (e.g. Communication inside Programs):
+static int s_nSub2Sel = -1;  // s_nSub2Root = item index in the level-1 table
+static int s_nHoverSub2 = -1;
+static DWORD s_dwHoverAt2 = 0;
 static int s_bDirty = 1; // declared early - the cascade helpers below set it
 
 // Cascade item lists by SUB_* id (the stock shell fills these from folders).
@@ -166,6 +191,9 @@ static const SHORTCUT *SubItems(int nSub, int *pn)
 		case SUB_SETTINGS:
 			*pn = (int)(sizeof(s_subSettings) / sizeof(s_subSettings[0]));
 			return s_subSettings;
+		case SUB_COMM:
+			*pn = (int)(sizeof(s_subComm) / sizeof(s_subComm[0]));
+			return s_subComm;
 	}
 	*pn = 0;
 	return NULL;
@@ -283,6 +311,8 @@ static void OpenSub(int nRootIdx)
 {
 	s_nSubRoot = nRootIdx;
 	s_nSubSel = -1; // nothing highlighted until the cursor/keys pick a row
+	s_nSub2Root = -1;
+	s_nSub2Sel = -1;
 	s_bDirty = 1;
 }
 static void CloseSub(void)
@@ -290,6 +320,56 @@ static void CloseSub(void)
 	s_nSubRoot = -1;
 	s_nSubSel = -1;
 	s_nHoverSub = -1;
+	s_nSub2Root = -1;
+	s_nSub2Sel = -1;
+	s_nHoverSub2 = -1;
+	s_bDirty = 1;
+}
+
+// --- nested cascade (level 2) ---------------------------------------------------
+// Same geometry rule one level deeper: hangs off the level-1 popup's right edge,
+// top aligned with the parent item's row inside that popup.
+static const SHORTCUT *Sub2OpenItems(int *pn)
+{
+	int n1 = 0;
+	const SHORTCUT *a1 = SubOpenItems(&n1);
+	if (!a1 || s_nSub2Root < 0 || s_nSub2Root >= n1 || a1[s_nSub2Root].sub < 0)
+	{
+		*pn = 0;
+		return NULL;
+	}
+	return SubItems(a1[s_nSub2Root].sub, pn);
+}
+
+static void Sub2Rect(RECT *prc)
+{
+	RECT r1;
+	int n1 = 0, n = 0;
+	const SHORTCUT *a1 = SubOpenItems(&n1);
+	const SHORTCUT *a2 = Sub2OpenItems(&n);
+	int nTop, w, h;
+	SubRect(&r1);
+	nTop = r1.top + MENU_PAD + (a1 ? MenuItemTop(a1, s_nSub2Root) : 0) - MENU_PAD;
+	w = a2 ? MenuItemW(a2, n) + MENU_PAD * 2 : MENU_PAD * 2 + 8;
+	h = a2 ? MenuContentH(a2, n) + MENU_PAD * 2 : MENU_PAD * 2;
+	if (nTop + h > TASK_Y - 2)
+		nTop = TASK_Y - 2 - h;
+	if (nTop < 2)
+		nTop = 2;
+	SetRect(prc, r1.right - MENU_PAD, nTop, r1.right - MENU_PAD + w, nTop + h);
+}
+
+static void OpenSub2(int nIdx)
+{
+	s_nSub2Root = nIdx;
+	s_nSub2Sel = -1;
+	s_bDirty = 1;
+}
+static void CloseSub2(void)
+{
+	s_nSub2Root = -1;
+	s_nSub2Sel = -1;
+	s_nHoverSub2 = -1;
 	s_bDirty = 1;
 }
 
@@ -1068,9 +1148,14 @@ static void RenderDialogText(HDC hdc)
 // document, and Windows will open it for you." + an edit field + OK / Cancel /
 // Browse... laid out like the CE 2.x dialog (buttons stacked at the right).
 //
-#define RUN_W     300
-#define RUN_H     122
-#define RUN_CTL_N 4 // edit field, OK, Cancel, Browse...
+// Stock Run dialog (DLG1003) laid out off the CEPC capture: navy caption with the
+// run icon + "Run" + a close box, 32px icon at left, the two-line instruction text,
+// an "Open:" label with a sunken combo (edit + dropdown button), and OK/Cancel/
+// Browse... as a horizontal row along the bottom. OK starts disabled until the
+// field is non-empty (greyed caption, like stock).
+#define RUN_W     430
+#define RUN_H     170
+#define RUN_CTL_N 5 // edit field, OK, Cancel, Browse..., caption close
 
 static WCHAR s_szRun[128];
 static int s_nRunLen = 0;
@@ -1092,17 +1177,20 @@ static void RunCtlRect(int i, RECT *pr)
 	switch (i)
 	{
 		case 0:
-			SetRect(pr, x0 + 52, y0 + 72, x0 + 226, y0 + 90);
-			break; // edit
+			SetRect(pr, x0 + 60, y0 + 80, x0 + RUN_W - 44, y0 + 100);
+			break; // edit (combo field, dropdown sits right of it)
 		case 1:
-			SetRect(pr, x0 + 232, y0 + 26, x0 + 292, y0 + 46);
+			SetRect(pr, x0 + 72, y0 + 128, x0 + 162, y0 + 152);
 			break; // OK
 		case 2:
-			SetRect(pr, x0 + 232, y0 + 50, x0 + 292, y0 + 70);
+			SetRect(pr, x0 + 170, y0 + 128, x0 + 260, y0 + 152);
 			break; // Cancel
-		default:
-			SetRect(pr, x0 + 232, y0 + 74, x0 + 292, y0 + 94);
+		case 3:
+			SetRect(pr, x0 + 268, y0 + 128, x0 + 358, y0 + 152);
 			break; // Browse...
+		default:
+			SetRect(pr, x0 + RUN_W - 17, y0 + 4, x0 + RUN_W - 3, y0 + 21);
+			break; // caption close (X)
 	}
 }
 
@@ -1147,16 +1235,18 @@ static void RunActivate(void)
 {
 	switch (s_nDlgSel)
 	{
-		case 1: // OK -> run the typed command line
-			s_bDlgOpen = 0;
+		case 1: // OK -> run the typed command line (disabled while the field is empty)
 			if (s_nRunLen > 0)
+			{
+				s_bDlgOpen = 0;
 				ShellLaunch(s_szRun);
+			}
 			break;
 		case 3: // Browse... -> the file explorer, like the real browse dialog
 			s_bDlgOpen = 0;
 			LaunchApp(L"dcwexp.exe", L"\\Windows");
 			break;
-		default:
+		default: // Cancel or the caption close box
 			s_bDlgOpen = 0;
 			break;
 	}
@@ -1181,21 +1271,25 @@ static void RunDlgOnKey(WPARAM wParam)
 			RunActivate();
 		else if (wParam == VK_ESCAPE)
 			s_bDlgOpen = 0;
-		else if (wParam == VK_UP || wParam == VK_DOWN || wParam == VK_TAB)
+		else if (wParam == VK_UP || wParam == VK_DOWN)
+			s_nDlgSel = 1;
+		else if (wParam == VK_TAB) // stock tab order: edit -> OK -> Cancel -> Browse -> edit
 			s_nDlgSel = 1;
 		s_bDirty = 1;
 		return;
 	}
-	if (wParam == VK_UP && s_nDlgSel > 1)
+	if (wParam == VK_LEFT && s_nDlgSel > 1)
 		s_nDlgSel--;
-	else if (wParam == VK_DOWN && s_nDlgSel < RUN_CTL_N - 1)
+	else if (wParam == VK_RIGHT && s_nDlgSel < 3)
 		s_nDlgSel++;
+	else if (wParam == VK_UP || wParam == VK_DOWN) // back to the edit field
+		s_nDlgSel = 0;
 	else if (wParam == VK_RETURN)
 		RunActivate();
 	else if (wParam == VK_ESCAPE)
 		s_bDlgOpen = 0;
 	else if (wParam == VK_TAB)
-		s_nDlgSel = 0;
+		s_nDlgSel = (s_nDlgSel < 3) ? s_nDlgSel + 1 : 0;
 	else if (RunChar(wParam) || wParam == VK_BACK) // typing jumps back into the field
 	{
 		s_nDlgSel = 0;
@@ -1221,6 +1315,17 @@ static void RunDlgClick(int x, int y)
 			return;
 		}
 	}
+	// the "Open:" label + combo row also focus the edit field
+	{
+		RECT cr;
+		SetRect(&cr, (SCREEN_W - RUN_W) / 2, (SCREEN_H - RUN_H) / 2 + 70,
+		        (SCREEN_W + RUN_W) / 2, (SCREEN_H - RUN_H) / 2 + 104);
+		if (x >= cr.left && x < cr.right && y >= cr.top && y < cr.bottom)
+		{
+			s_nDlgSel = 0;
+			s_bDirty = 1;
+		}
+	}
 }
 
 static void RenderRunFills(void)
@@ -1230,43 +1335,75 @@ static void RenderRunFills(void)
 	SetRect(&rc, x0, y0, x0 + RUN_W, y0 + RUN_H);
 	GfxFill(rc.left, rc.top, rc.right, rc.bottom, CL_FACE);
 	GfxBevel(&rc, TRUE);
-	GfxFill(x0 + 2, y0 + 2, x0 + RUN_W - 2, y0 + 20, CL_TITLE); // title bar
-	GfxIconBig(ICON_RUN, x0 + 10, y0 + 30);
+	GfxFill(x0 + 2, y0 + 2, x0 + RUN_W - 2, y0 + CAPT_H + 2, CL_TITLE); // navy caption
+	GfxIcon(ICON_RUN, x0 + 5, y0 + 5);                                // caption icon
+	GfxIconBig(ICON_RUN, x0 + 16, y0 + 38);                           // 32px icon at left
 	for (i = 1; i < RUN_CTL_N; i++)
 	{
 		RunCtlRect(i, &rc);
-		GfxFill(rc.left, rc.top, rc.right, rc.bottom, (i == s_nDlgSel) ? CL_SEL : CL_FACE);
+		GfxFill(rc.left, rc.top, rc.right, rc.bottom, CL_FACE);
 		GfxBevel(&rc, TRUE);
+		if (i == s_nDlgSel && s_nDlgSel != 0)
+		{ // focus = a second dark edge inside the bevel (stock focused-button look)
+			GfxFill(rc.left + 2, rc.top + 2, rc.right - 2, rc.top + 3, RGB(96, 96, 96));
+			GfxFill(rc.left + 2, rc.bottom - 3, rc.right - 2, rc.bottom - 2,
+			        RGB(96, 96, 96));
+			GfxFill(rc.left + 2, rc.top + 2, rc.left + 3, rc.bottom - 2, RGB(96, 96, 96));
+			GfxFill(rc.right - 3, rc.top + 2, rc.right - 2, rc.bottom - 2,
+			        RGB(96, 96, 96));
+		}
 	}
 	RunCtlRect(0, &rc); // sunken white edit field
 	GfxFill(rc.left, rc.top, rc.right, rc.bottom, CL_WHITE);
 	GfxBevel(&rc, FALSE);
+	{ // combo dropdown button right of the field (stock combo look)
+		RECT dd;
+		SetRect(&dd, rc.right + 2, rc.top, rc.right + 26, rc.bottom);
+		GfxFill(dd.left, dd.top, dd.right, dd.bottom, CL_FACE);
+		GfxBevel(&dd, TRUE);
+		{ // black down-arrow glyph
+			int dx = dd.left + (dd.right - dd.left - 9) / 2, dy = dd.top + 6, r;
+			for (r = 0; r < 5; r++)
+				GfxFill(dx + r, dy + r, dx + 9 - r, dy + r + 1, CL_TEXT);
+		}
+	}
 	if (s_nDlgSel == 0) // block caret at the end of the text (fills pass - no fills in GetDC)
 		GfxFill(rc.left + 4 + GfxTextWidth(g_FontUI, s_szRun), rc.top + 4,
 		        rc.left + 10 + GfxTextWidth(g_FontUI, s_szRun), rc.bottom - 4, CL_TEXT);
+	{ // caption close box: X glyph on a bevelled button
+		RECT cc;
+		static const char *s_aXArt[9] = {"XX.....XX", "XXX...XXX", ".XXX.XXX.", "..XXXXX..",
+		                                 "...XXX...", "..XXXXX..", ".XXX.XXX.", "XXX...XXX",
+		                                 "XX.....XX"};
+		int gx, gy;
+		RunCtlRect(4, &cc);
+		for (gy = 0; gy < 9; gy++)
+			for (gx = 0; gx < 9; gx++)
+				if (s_aXArt[gy][gx] == 'X')
+					GfxFill(cc.left + 3 + gx, cc.top + 4 + gy, cc.left + 4 + gx,
+					        cc.top + 5 + gy, CL_TEXT);
+	}
 }
 
 static void RenderRunText(HDC hdc)
 {
 	RECT cr;
 	int x0 = (SCREEN_W - RUN_W) / 2, y0 = (SCREEN_H - RUN_H) / 2;
-	GfxText(hdc, x0 + 8, y0 + 4, CL_WHITE, CL_TITLE, g_FontBold, L"Run");
-	GfxText(hdc, x0 + 52, y0 + 28, CL_TEXT, CL_FACE, g_FontUI,
-	        L"Type the name of a program, folder,");
-	GfxText(hdc, x0 + 52, y0 + 42, CL_TEXT, CL_FACE, g_FontUI,
-	        L"or document, and Windows will open it");
-	GfxText(hdc, x0 + 52, y0 + 56, CL_TEXT, CL_FACE, g_FontUI, L"for you.");
+	GfxText(hdc, x0 + 24, y0 + 5, CL_WHITE, CL_TITLE, g_FontBold, L"Run");
+	GfxText(hdc, x0 + 56, y0 + 40, CL_TEXT, CL_FACE, g_FontUI,
+	        L"Type the name of a program, folder, or");
+	GfxText(hdc, x0 + 56, y0 + 54, CL_TEXT, CL_FACE, g_FontUI,
+	        L"document, and Windows will open it for you.");
+	GfxText(hdc, x0 + 16, y0 + 84, CL_TEXT, CL_FACE, g_FontUI, L"Open:");
 	RunCtlRect(0, &cr);
 	GfxText(hdc, cr.left + 4, cr.top + 4, CL_TEXT, CL_WHITE, g_FontUI, s_szRun);
-	RunCtlRect(1, &cr);
-	GfxText(hdc, cr.left + 21, cr.top + 4, (s_nDlgSel == 1) ? CL_WHITE : CL_TEXT,
-	        (s_nDlgSel == 1) ? CL_SEL : CL_FACE, g_FontUI, L"OK");
+	RunCtlRect(1, &cr); // OK greys out while the field is empty, like stock
+	GfxText(hdc, cr.left + 37, cr.top + 7,
+	        (s_nRunLen > 0) ? CL_TEXT : RGB(128, 128, 128), CL_FACE, g_FontUI, L"OK");
 	RunCtlRect(2, &cr);
-	GfxText(hdc, cr.left + 9, cr.top + 4, (s_nDlgSel == 2) ? CL_WHITE : CL_TEXT,
-	        (s_nDlgSel == 2) ? CL_SEL : CL_FACE, g_FontUI, L"Cancel");
+	GfxText(hdc, cr.left + 28, cr.top + 7, CL_TEXT, CL_FACE, g_FontUI, L"Cancel");
 	RunCtlRect(3, &cr);
-	GfxText(hdc, cr.left + 4, cr.top + 4, (s_nDlgSel == 3) ? CL_WHITE : CL_TEXT,
-	        (s_nDlgSel == 3) ? CL_SEL : CL_FACE, g_FontUI, L"Browse...");
+	GfxText(hdc, cr.left + 21, cr.top + 7, CL_TEXT, CL_FACE, g_FontUI, L"Browse...");
 }
 
 //
@@ -1433,7 +1570,8 @@ static int WindowAt(int x, int y) // topmost open window at (x,y) (focused first
 	if (s_nFocus >= 0 && s_pShared->win[s_nFocus].inUse && !s_abWinMin[s_nFocus])
 	{
 		DcWindow *w = &s_pShared->win[s_nFocus];
-		if (x >= w->x - 2 && x < w->x + w->w + 2 && y >= w->y - 18 && y < w->y + w->h + 2)
+		if (x >= w->x - 2 && x < w->x + w->w + 2 && y >= w->y - (CAPT_H + 2) &&
+		    y < w->y + w->h + 2)
 			return s_nFocus;
 	}
 	for (k = 0; k < DCWIN_MAXWIN; k++)
@@ -1441,7 +1579,8 @@ static int WindowAt(int x, int y) // topmost open window at (x,y) (focused first
 		DcWindow *w = &s_pShared->win[k];
 		if (!w->inUse || s_abWinMin[k] || k == s_nFocus)
 			continue;
-		if (x >= w->x - 2 && x < w->x + w->w + 2 && y >= w->y - 18 && y < w->y + w->h + 2)
+		if (x >= w->x - 2 && x < w->x + w->w + 2 && y >= w->y - (CAPT_H + 2) &&
+		    y < w->y + w->h + 2)
 			return k;
 	}
 	return -1;
@@ -1737,33 +1876,58 @@ static void RenderTaskbarFills(void)
 	GfxFill(0, TASK_Y, SCREEN_W, SCREEN_H, CL_FACE);
 	SetRect(&rc, 0, TASK_Y, SCREEN_W, SCREEN_H);
 	GfxBevel(&rc, TRUE);
-	SetRect(&rc, 4, TASK_Y + 3, 72, SCREEN_H - 3);
-	GfxFill(rc.left, rc.top, rc.right, rc.bottom, CL_FACE);
-	GfxBevel(&rc, s_bMenuOpen ? FALSE : TRUE); // pressed while the menu is up
-	GfxIcon(ICON_START, 8, TASK_Y + 5);        // the CE flag, like the H/PC Start button
 
-	if (s_bTbClock) // Show Clock
+	// Start button (stock: x2..53, flag icon at +2, "Start" text after it). While the
+	// menu is up it draws checked: sunken bevel + a 50% stippled face.
+	SetRect(&rc, 2, TASK_Y + 3, 53, SCREEN_H - 3);
+	if (s_bMenuOpen)
 	{
-		SetRect(&rc, SCREEN_W - 58, TASK_Y + 3, SCREEN_W - 4,
-		        SCREEN_H - 3); // sunken clock tray
-		GfxFill(rc.left, rc.top, rc.right, rc.bottom, CL_FACE);
-		GfxBevel(&rc, FALSE);
+		int dx, dy;
+		for (dy = rc.top; dy < rc.bottom; dy++)
+			for (dx = rc.left + ((dy - rc.top) & 1); dx < rc.right; dx += 2)
+				GfxFill(dx, dy, dx + 1, dy + 1, RGB(160, 160, 160));
 	}
+	else
+		GfxFill(rc.left, rc.top, rc.right, rc.bottom, CL_FACE);
+	GfxBevel(&rc, s_bMenuOpen ? FALSE : TRUE);
+	GfxIcon(ICON_START, 4, TASK_Y + 5); // the CE flag, like the H/PC Start button
 
-	if (s_pShared) // one button per open window (focused = pressed)
+	if (s_pShared) // task buttons after Start: icon + text, sunken when focused
 	{
-		int bx = 80, k;
+		int bx = 56, k;
 		for (k = 0; k < DCWIN_MAXWIN; k++)
 		{
+			int w;
 			if (!s_pShared->win[k].inUse)
 				continue;
-			SetRect(&rc, bx, TASK_Y + 3, bx + 110, SCREEN_H - 3);
+			w = GfxTextWidth(g_FontUI, s_pShared->win[k].title) + 30;
+			if (w < 56)
+				w = 56;
+			if (w > 128)
+				w = 128;
+			if (bx + w > SCREEN_W - 96) // keep clear of the tray
+				break;
+			SetRect(&rc, bx, TASK_Y + 3, bx + w, SCREEN_H - 3);
 			GfxFill(rc.left, rc.top, rc.right, rc.bottom, CL_FACE);
 			GfxBevel(&rc, (k == s_nFocus) ? FALSE : TRUE);
 			GfxIcon((int)s_pShared->win[k].icon, bx + 4, TASK_Y + 6);
-			bx += 116;
+			bx += w + 2;
 		}
 	}
+
+	if (s_bTbClock) // Show Clock: sunken tray = AC-plug icon + "h:mm AM/PM"
+	{
+		SetRect(&rc, SCREEN_W - 94, TASK_Y + 3, SCREEN_W - 26, SCREEN_H - 3);
+		GfxFill(rc.left, rc.top, rc.right, rc.bottom, CL_FACE);
+		GfxBevel(&rc, FALSE);
+		GfxIcon(ICON_POWER, rc.left + 4, TASK_Y + 6); // stock AC-line indicator
+	}
+
+	// input-panel button (stock pencil-on-page glyph, far right)
+	SetRect(&rc, SCREEN_W - 25, TASK_Y + 3, SCREEN_W - 3, SCREEN_H - 3);
+	GfxFill(rc.left, rc.top, rc.right, rc.bottom, CL_FACE);
+	GfxBevel(&rc, TRUE);
+	GfxIcon(ICON_SIP, rc.left + 3, TASK_Y + 6);
 
 	if (s_bMenuOpen)
 	{
@@ -1827,6 +1991,42 @@ static void RenderTaskbarFills(void)
 						GfxFill(sx, sy, sr, sy + ih, CL_SEL);
 					if (!a[i].dis)
 						GfxIcon(a[i].icon, sx + 4, sy + 3);
+					if (a[i].sub >= 0) // nested cascade glyph
+					{
+						int d, ax = sr - 10, ay = sy + (ih - 7) / 2;
+						COLORREF cl = (i == s_nSubSel) ? CL_WHITE : CL_TEXT;
+						for (d = 0; d < 4; d++)
+							GfxFill(ax + d, ay + d, ax + d + 1, ay + 7 - d, cl);
+					}
+				}
+				sy += ih;
+			}
+		}
+		if (s_nSub2Root >= 0) // open nested cascade
+		{
+			RECT rs;
+			int n = 0, sx, sr, sy;
+			const SHORTCUT *a = Sub2OpenItems(&n);
+			Sub2Rect(&rs);
+			GfxFill(rs.left, rs.top, rs.right, rs.bottom, CL_FACE);
+			GfxBevel(&rs, TRUE);
+			sx = rs.left + MENU_PAD;
+			sr = rs.right - MENU_PAD;
+			sy = rs.top + MENU_PAD;
+			for (i = 0; i < n; i++)
+			{
+				int ih = a[i].sep ? SEP_H : ROW_H;
+				if (a[i].sep)
+				{
+					GfxFill(sx, sy + 2, sr, sy + 3, RGB(128, 128, 128));
+					GfxFill(sx, sy + 3, sr, sy + 4, RGB(255, 255, 255));
+				}
+				else
+				{
+					if (i == s_nSub2Sel)
+						GfxFill(sx, sy, sr, sy + ih, CL_SEL);
+					if (!a[i].dis)
+						GfxIcon(a[i].icon, sx + 4, sy + 3);
 				}
 				sy += ih;
 			}
@@ -1842,7 +2042,7 @@ static void RenderBarsText(HDC hdc)
 
 	if (TaskbarUp())
 	{
-		GfxText(hdc, 28, TASK_Y + 5, CL_TEXT, CL_FACE, g_FontBold, L"Start");
+		GfxText(hdc, 24, TASK_Y + 5, CL_TEXT, CL_FACE, g_FontBold, L"Start");
 		GetLocalTime(&t);
 		{ // the H/PC tray shows 12-hour time: "3:07 PM"
 			int h12 = t.wHour % 12;
@@ -1851,18 +2051,26 @@ static void RenderBarsText(HDC hdc)
 			wsprintfW(szClk, L"%d:%02d %s", h12, t.wMinute, t.wHour < 12 ? L"AM" : L"PM");
 		}
 		if (s_bTbClock)
-			GfxText(hdc, SCREEN_W - 54, TASK_Y + 5, CL_TEXT, CL_FACE, g_FontUI, szClk);
+			GfxText(hdc, SCREEN_W - 68, TASK_Y + 5, CL_TEXT, CL_FACE, g_FontUI, szClk);
 	}
 
 	if (s_pShared && TaskbarUp())
 	{
-		int bx = 80, k;
+		int bx = 56, k;
 		for (k = 0; k < DCWIN_MAXWIN; k++)
 		{
+			int w;
 			if (!s_pShared->win[k].inUse)
 				continue;
-			GfxText(hdc, bx + 24, TASK_Y + 5, CL_TEXT, CL_FACE, g_FontUI, s_pShared->win[k].title);
-			bx += 116;
+			w = GfxTextWidth(g_FontUI, s_pShared->win[k].title) + 30;
+			if (w < 56)
+				w = 56;
+			if (w > 128)
+				w = 128;
+			if (bx + w > SCREEN_W - 96)
+				break;
+			GfxText(hdc, bx + 22, TASK_Y + 5, CL_TEXT, CL_FACE, g_FontUI, s_pShared->win[k].title);
+			bx += w + 2;
 		}
 	}
 
@@ -1899,6 +2107,27 @@ static void RenderBarsText(HDC hdc)
 					COLORREF fg = a[i].dis ? RGB(128, 128, 128)
 					                     : (i == s_nSubSel) ? CL_WHITE : CL_TEXT;
 					COLORREF bg = (i == s_nSubSel && !a[i].dis) ? CL_SEL : CL_FACE;
+					GfxText(hdc, rs.left + MENU_PAD + 24, y + (ih - 14) / 2, fg, bg,
+					        g_FontUI, a[i].label);
+				}
+				y += ih;
+			}
+		}
+		if (s_nSub2Root >= 0) // nested cascade labels
+		{
+			RECT rs;
+			int n = 0;
+			const SHORTCUT *a = Sub2OpenItems(&n);
+			Sub2Rect(&rs);
+			y = rs.top + MENU_PAD;
+			for (i = 0; i < n; i++)
+			{
+				int ih = a[i].sep ? SEP_H : ROW_H;
+				if (!a[i].sep)
+				{
+					COLORREF fg = a[i].dis ? RGB(128, 128, 128)
+					                     : (i == s_nSub2Sel) ? CL_WHITE : CL_TEXT;
+					COLORREF bg = (i == s_nSub2Sel && !a[i].dis) ? CL_SEL : CL_FACE;
 					GfxText(hdc, rs.left + MENU_PAD + 24, y + (ih - 14) / 2, fg, bg,
 					        g_FontUI, a[i].label);
 				}
@@ -1951,45 +2180,47 @@ static void DrawWinFills(DcWindow *w, int wi, BOOL bActive)
 	RECT rcFrame;
 	int i;
 
-	SetRect(&rcFrame, w->x - 2, w->y - 18, w->x + w->w + 2, w->y + w->h + 2); // frame
+	SetRect(&rcFrame, w->x - 2, w->y - (CAPT_H + 2), w->x + w->w + 2,
+	        w->y + w->h + 2); // frame
 	GfxFill(rcFrame.left, rcFrame.top, rcFrame.right, rcFrame.bottom, CL_FACE);
 	GfxBevel(&rcFrame, TRUE);
-	GfxFill(w->x - 2, w->y - 18, w->x + w->w + 2, w->y - 2,
+	GfxFill(w->x - 2, w->y - (CAPT_H + 2), w->x + w->w + 2, w->y - 2,
 	        bActive ? CL_TITLE : RGB(112, 112, 112));
-	GfxIcon((int)w->icon, w->x, w->y - 18);                                   // title-bar icon
-	GfxFill(w->x + w->w - 14, w->y - 16, w->x + w->w + 1, w->y - 3, CL_FACE); // close box
-	{
+	GfxIcon((int)w->icon, w->x + 2, w->y - (CAPT_H + 2) + 3); // title-bar icon
+	{ // close box: right-aligned ~14px button inside the caption
 		// the stock CE close glyph: a thin 2-stroke x-mark (extracted, not a text 'X')
 		static const char *s_aXArt[9] = {"XX.....XX", "XXX...XXX", ".XXX.XXX.", "..XXXXX..",
 		                                 "...XXX...", "..XXXXX..", ".XXX.XXX.", "XXX...XXX",
 		                                 "XX.....XX"};
 		RECT rcClose;
 		int gx, gy;
-		SetRect(&rcClose, w->x + w->w - 14, w->y - 16, w->x + w->w + 1, w->y - 3);
+		SetRect(&rcClose, w->x + w->w - 15, w->y - (CAPT_H + 2) + 3, w->x + w->w - 1,
+		        w->y - 4);
+		GfxFill(rcClose.left, rcClose.top, rcClose.right, rcClose.bottom, CL_FACE);
 		GfxBevel(&rcClose, TRUE);
 		for (gy = 0; gy < 9; gy++)
 			for (gx = 0; gx < 9; gx++)
 				if (s_aXArt[gy][gx] == 'X')
-					GfxFill(rcClose.left + 3 + gx, rcClose.top + 2 + gy, rcClose.left + 4 + gx,
-					        rcClose.top + 3 + gy, CL_TEXT);
+					GfxFill(rcClose.left + 3 + gx, rcClose.top + 4 + gy, rcClose.left + 4 + gx,
+					        rcClose.top + 5 + gy, CL_TEXT);
 	}
 	{ // maximize/restore box (left of close) + its glyph (a little window w/ a title bar)
-		int nMaxX0 = w->x + w->w - 30, nMaxY0 = w->y - 16;
+		int nMaxX0 = w->x + w->w - 30;
 		RECT rcMax;
-		SetRect(&rcMax, nMaxX0, nMaxY0, w->x + w->w - 15, w->y - 3);
+		SetRect(&rcMax, nMaxX0, w->y - (CAPT_H + 2) + 3, w->x + w->w - 16, w->y - 4);
 		GfxFill(rcMax.left, rcMax.top, rcMax.right, rcMax.bottom, CL_FACE);
 		GfxBevel(&rcMax, TRUE);
-		GfxFill(nMaxX0 + 3, nMaxY0 + 3, nMaxX0 + 12, nMaxY0 + 10, CL_TEXT); // outline
-		GfxFill(nMaxX0 + 4, nMaxY0 + 5, nMaxX0 + 11, nMaxY0 + 9,
+		GfxFill(nMaxX0 + 3, w->y - (CAPT_H + 2) + 6, nMaxX0 + 11, w->y - 9, CL_TEXT);
+		GfxFill(nMaxX0 + 4, w->y - (CAPT_H + 2) + 8, nMaxX0 + 10, w->y - 10,
 		        CL_FACE); // interior (leaves a top "title bar")
 	}
 	{ // minimize box (left of maximize) + its glyph (a low bar)
-		int nMinX0 = w->x + w->w - 46, nMinY0 = w->y - 16;
+		int nMinX0 = w->x + w->w - 45;
 		RECT rcMin;
-		SetRect(&rcMin, nMinX0, nMinY0, w->x + w->w - 31, w->y - 3);
+		SetRect(&rcMin, nMinX0, w->y - (CAPT_H + 2) + 3, w->x + w->w - 31, w->y - 4);
 		GfxFill(rcMin.left, rcMin.top, rcMin.right, rcMin.bottom, CL_FACE);
 		GfxBevel(&rcMin, TRUE);
-		GfxFill(nMinX0 + 3, nMinY0 + 8, nMinX0 + 12, nMinY0 + 10, CL_TEXT); // the "minimize" bar
+		GfxFill(nMinX0 + 3, w->y - 10, nMinX0 + 11, w->y - 8, CL_TEXT); // the "minimize" bar
 	}
 
 	GfxSetClip(w->x, w->y, w->x + w->w, w->y + w->h); // clip content to the client area
@@ -2000,6 +2231,8 @@ static void DrawWinFills(DcWindow *w, int wi, BOOL bActive)
 			GfxFill(w->x + c->x, w->y + c->y, w->x + c->x + c->w, w->y + c->y + c->h, c->color);
 		else if (c->op == DCOP_ICON)
 			GfxIcon((int)c->color, w->x + c->x, w->y + c->y);
+		else if (c->op == DCOP_ICONBIG)
+			GfxIconBig((int)c->color, w->x + c->x, w->y + c->y);
 	}
 	GfxClearClip();
 }
@@ -2011,9 +2244,9 @@ static void DrawWinText(HDC hdc, DcWindow *w, int wi, BOOL bActive)
 	// Clip title-bar text to the bar: a glyph cell is GH(16)px tall but the bar is only
 	// 16px, so without this the opaque text bg quad spills ~2px below the bar's bottom edge
 	// (the blue "dip" under the caption). The glyph itself fits, only the overhang is cut.
-	GfxSetClip(w->x - 2, w->y - 18, w->x + w->w + 2, w->y - 2);
-	GfxText(hdc, w->x + 18, w->y - 16, CL_WHITE, bActive ? CL_TITLE : RGB(112, 112, 112),
-	        g_FontBold, w->title);
+	GfxSetClip(w->x - 2, w->y - (CAPT_H + 2), w->x + w->w + 2, w->y - 2);
+	GfxText(hdc, w->x + 20, w->y - CAPT_H - 2 + 4, CL_WHITE,
+	        bActive ? CL_TITLE : RGB(112, 112, 112), g_FontBold, w->title);
 	GfxClearClip();
 	GfxSetClip(w->x, w->y, w->x + w->w, w->y + w->h); // clip content text to the client area
 	for (i = 0; i < s_anSnapN[wi]; i++)
@@ -2172,6 +2405,9 @@ static void CloseStartMenu(void)
 	s_nSubRoot = -1;
 	s_nSubSel = -1;
 	s_nHoverSub = -1;
+	s_nSub2Root = -1;
+	s_nSub2Sel = -1;
+	s_nHoverSub2 = -1;
 }
 
 // Run a shortcut's action (shared by root items, cascade items and desktop icons).
@@ -2208,7 +2444,24 @@ static void ActivateSubItem(void)
 	SHORTCUT it;
 	if (!a || s_nSubSel < 0 || s_nSubSel >= n || a[s_nSubSel].dis)
 		return;
+	if (a[s_nSubSel].sub >= 0) // a nested cascade opens level 2, it doesn't launch
+	{
+		OpenSub2(s_nSubSel);
+		return;
+	}
 	it = a[s_nSubSel];
+	CloseStartMenu();
+	ActivateShortcut(&it);
+}
+
+static void ActivateSub2Item(void)
+{
+	int n = 0;
+	const SHORTCUT *a = Sub2OpenItems(&n);
+	SHORTCUT it;
+	if (!a || s_nSub2Sel < 0 || s_nSub2Sel >= n || a[s_nSub2Sel].dis)
+		return;
+	it = a[s_nSub2Sel];
 	CloseStartMenu();
 	ActivateShortcut(&it);
 }
@@ -2298,6 +2551,34 @@ static void OnKey(WPARAM wParam)
 		{
 			int nSub = 0;
 			const SHORTCUT *aSub = SubOpenItems(&nSub);
+			if (s_nSub2Root >= 0) // nested cascade up: keys drive it instead
+			{
+				int nSub2 = 0;
+				const SHORTCUT *aSub2 = Sub2OpenItems(&nSub2);
+				if (wParam == VK_LEFT || wParam == VK_ESCAPE)
+					CloseSub2();
+				else if (aSub2 && (wParam == VK_UP || wParam == VK_DOWN))
+				{
+					int d = (wParam == VK_UP) ? -1 : 1, s = s_nSub2Sel, k;
+					for (k = 0; k < nSub2; k++)
+					{
+						s += d;
+						if (s < 0)
+							s = nSub2 - 1;
+						if (s >= nSub2)
+							s = 0;
+						if (!aSub2[s].sep && !aSub2[s].dis)
+						{
+							s_nSub2Sel = s;
+							break;
+						}
+					}
+				}
+				else if (wParam == VK_RETURN)
+					ActivateSub2Item();
+				s_bDirty = 1;
+				return;
+			}
 			if (wParam == VK_LEFT || wParam == VK_ESCAPE)
 				CloseSub();
 			else if (aSub && (wParam == VK_UP || wParam == VK_DOWN))
@@ -2313,10 +2594,26 @@ static void OnKey(WPARAM wParam)
 						s = 0;
 					if (!aSub[s].sep && !aSub[s].dis)
 					{
+						if (s != s_nSubSel && s_nSub2Root >= 0)
+							CloseSub2(); // moving off the cascade item drops level 2
 						s_nSubSel = s;
 						break;
 					}
 				}
+			}
+			else if (aSub && wParam == VK_RIGHT && s_nSubSel >= 0 &&
+			         s_nSubSel < nSub && aSub[s_nSubSel].sub >= 0)
+			{
+				int n2 = 0;
+				const SHORTCUT *a2 = SubItems(aSub[s_nSubSel].sub, &n2);
+				int s;
+				OpenSub2(s_nSubSel);
+				for (s = 0; s < n2; s++) // land on the first selectable row
+					if (!a2[s].sep && !a2[s].dis)
+					{
+						s_nSub2Sel = s;
+						break;
+					}
 			}
 			else if (wParam == VK_RETURN)
 				ActivateSubItem();
@@ -2404,9 +2701,9 @@ static void ToggleMaximize(int wi)
 		s_awinRestore[wi][2] = w->w;
 		s_awinRestore[wi][3] = w->h;
 		w->x = 2;
-		w->y = 20; // title bar sits at y=2..20
+		w->y = CAPT_H + 4; // caption sits at y=2..24
 		w->w = SCREEN_W - 4;
-		w->h = TASK_Y - 22; // fill down to the taskbar
+		w->h = TASK_Y - (CAPT_H + 6); // fill down to the taskbar
 		s_abWinMax[wi] = 1;
 	}
 	s_bDirty = 1;
@@ -2450,6 +2747,24 @@ static int HandleClick(int x, int y)
 			RECT rs;
 			int n = 0;
 			const SHORTCUT *a = SubOpenItems(&n);
+			if (s_nSub2Root >= 0) // nested cascade sits above its parent
+			{
+				RECT rs2;
+				int n2 = 0;
+				const SHORTCUT *a2 = Sub2OpenItems(&n2);
+				Sub2Rect(&rs2);
+				if (x >= rs2.left && x < rs2.right && y >= rs2.top + MENU_PAD &&
+				    y < rs2.bottom - MENU_PAD)
+				{
+					nRow = MenuItemAtY(a2, n2, y - (rs2.top + MENU_PAD));
+					if (nRow >= 0 && !a2[nRow].dis)
+					{
+						s_nSub2Sel = nRow;
+						ActivateSub2Item();
+					}
+					return 1;
+				}
+			}
 			SubRect(&rs);
 			if (x >= rs.left && x < rs.right && y >= rs.top + MENU_PAD &&
 			    y < rs.bottom - MENU_PAD)
@@ -2458,7 +2773,7 @@ static int HandleClick(int x, int y)
 				if (nRow >= 0 && !a[nRow].dis)
 				{
 					s_nSubSel = nRow;
-					ActivateSubItem();
+					ActivateSubItem(); // a .sub item here opens level 2, it doesn't launch
 				}
 				return 1; // clicks inside the submenu don't dismiss the menu tree
 			}
@@ -2477,7 +2792,7 @@ static int HandleClick(int x, int y)
 		CloseStartMenu(); // click elsewhere closes the menu
 		return 1;
 	}
-	if (y >= TASK_Y && TaskbarUp() && x >= 4 && x < 72) // Start button
+	if (y >= TASK_Y && TaskbarUp() && x >= 2 && x < 53) // Start button
 	{
 		if (s_bMenuOpen)
 			CloseStartMenu();
@@ -2490,12 +2805,20 @@ static int HandleClick(int x, int y)
 	}
 	if (y >= TASK_Y && TaskbarUp() && s_pShared) // taskbar window buttons
 	{
-		int bx = 80;
+		int bx = 56;
 		for (k = 0; k < DCWIN_MAXWIN; k++)
 		{
+			int w;
 			if (!s_pShared->win[k].inUse)
 				continue;
-			if (x >= bx && x < bx + 110) // restore a minimized window + focus it
+			w = GfxTextWidth(g_FontUI, s_pShared->win[k].title) + 30;
+			if (w < 56)
+				w = 56;
+			if (w > 128)
+				w = 128;
+			if (bx + w > SCREEN_W - 96)
+				break;
+			if (x >= bx && x < bx + w) // restore a minimized window + focus it
 			{
 				if (s_abWinMin[k])
 					s_abWinMin[k] = 0;
@@ -2503,7 +2826,7 @@ static int HandleClick(int x, int y)
 				s_bDirty = 1;
 				return 1;
 			}
-			bx += 116;
+			bx += w + 2;
 		}
 	}
 	if (s_pShared) // windows: topmost (focused) first
@@ -2519,22 +2842,23 @@ static int HandleClick(int x, int y)
 			DcWindow *w = &s_pShared->win[anOrder[j]];
 			if (s_abWinMin[anOrder[j]])
 				continue; // minimized: not on the desktop
-			if (x >= w->x - 2 && x < w->x + w->w + 2 && y >= w->y - 18 && y < w->y + w->h + 2)
+			if (x >= w->x - 2 && x < w->x + w->w + 2 && y >= w->y - (CAPT_H + 2) &&
+			    y < w->y + w->h + 2)
 			{
-				if (x >= w->x + w->w - 14 && x <= w->x + w->w + 1 && y >= w->y - 16 &&
-				    y <= w->y - 3)
+				if (x >= w->x + w->w - 15 && x <= w->x + w->w - 1 &&
+				    y >= w->y - (CAPT_H + 2) + 3 && y <= w->y - 4)
 				{
 					w->wantClose = 1;
 					return 1;
 				} // close box -> consumed
-				if (x >= w->x + w->w - 30 && x <= w->x + w->w - 15 && y >= w->y - 16 &&
-				    y <= w->y - 3)
+				if (x >= w->x + w->w - 30 && x <= w->x + w->w - 16 &&
+				    y >= w->y - (CAPT_H + 2) + 3 && y <= w->y - 4)
 				{
 					ToggleMaximize(anOrder[j]);
 					return 1;
 				} // maximize/restore box
-				if (x >= w->x + w->w - 46 && x <= w->x + w->w - 31 && y >= w->y - 16 &&
-				    y <= w->y - 3)
+				if (x >= w->x + w->w - 45 && x <= w->x + w->w - 31 &&
+				    y >= w->y - (CAPT_H + 2) + 3 && y <= w->y - 4)
 				{
 					s_abWinMin[anOrder[j]] = 1;
 					if (s_nFocus == anOrder[j])
@@ -2612,7 +2936,8 @@ static void DragHitTest(int x, int y)
 				return;
 			}
 			// title bar (excluding the min/max/close boxes) -> move
-			if (x >= w->x - 2 && x < w->x + w->w - 46 && y >= w->y - 18 && y < w->y - 2)
+			if (x >= w->x - 2 && x < w->x + w->w - 45 && y >= w->y - (CAPT_H + 2) &&
+			    y < w->y - 2)
 			{
 				s_nDragKind = DRAG_WMOVE;
 				s_nDragTarget = anOrder[j];
@@ -2948,9 +3273,27 @@ int WINAPI WinMain(HINSTANCE hInst, HINSTANCE hPrev, LPWSTR lpszCmd, int nShow)
 						RECT rs;
 						int n = 0, nRow;
 						const SHORTCUT *a = SubOpenItems(&n);
+						if (s_nSub2Root >= 0) // nested popup hit-test first
+						{
+							RECT rs2;
+							int n2 = 0, nRow2;
+							const SHORTCUT *a2 = Sub2OpenItems(&n2);
+							Sub2Rect(&rs2);
+							if (s_nCx >= rs2.left && s_nCx < rs2.right &&
+							    s_nCy >= rs2.top + MENU_PAD && s_nCy < rs2.bottom - MENU_PAD)
+							{
+								bInSub = 1;
+								nRow2 = MenuItemAtY(a2, n2, s_nCy - (rs2.top + MENU_PAD));
+								if (nRow2 >= 0 && !a2[nRow2].dis && nRow2 != s_nSub2Sel)
+								{
+									s_nSub2Sel = nRow2;
+									s_bDirty = 1;
+								}
+							}
+						}
 						SubRect(&rs);
-						if (s_nCx >= rs.left && s_nCx < rs.right && s_nCy >= rs.top + MENU_PAD &&
-						    s_nCy < rs.bottom - MENU_PAD)
+						if (!bInSub && s_nCx >= rs.left && s_nCx < rs.right &&
+						    s_nCy >= rs.top + MENU_PAD && s_nCy < rs.bottom - MENU_PAD)
 						{
 							bInSub = 1;
 							nRow = MenuItemAtY(a, n, s_nCy - (rs.top + MENU_PAD));
@@ -2958,6 +3301,22 @@ int WINAPI WinMain(HINSTANCE hInst, HINSTANCE hPrev, LPWSTR lpszCmd, int nShow)
 							{
 								s_nSubSel = nRow;
 								s_bDirty = 1;
+								// parked on a nested-cascade item arms level 2; moving to
+								// a plain item drops it, like stock
+								if (a[nRow].sub >= 0)
+								{
+									if (s_nHoverSub2 != nRow)
+									{
+										s_nHoverSub2 = nRow;
+										s_dwHoverAt2 = GetTickCount();
+									}
+								}
+								else
+								{
+									s_nHoverSub2 = -1;
+									if (s_nSub2Root >= 0)
+										CloseSub2();
+								}
 							}
 						}
 					}
@@ -3007,6 +3366,10 @@ int WINAPI WinMain(HINSTANCE hInst, HINSTANCE hPrev, LPWSTR lpszCmd, int nShow)
 			if (s_bMenuOpen && s_nHoverSub >= 0 && s_nHoverSub != s_nSubRoot &&
 			    GetTickCount() - s_dwHoverAt > 400)
 				OpenSub(s_nHoverSub);
+			// same dwell for the nested cascade (Communication inside Programs)
+			if (s_bMenuOpen && s_nSubRoot >= 0 && s_nHoverSub2 >= 0 &&
+			    s_nHoverSub2 != s_nSub2Root && GetTickCount() - s_dwHoverAt2 > 400)
+				OpenSub2(s_nHoverSub2);
 			// Pointer press / drag / release. A press that doesn't drag is a CLICK on release
 			// (preserving the old click + controller-activate behaviour); a press that grabs a
 			// title bar / window corner / desktop icon and then moves becomes a drag.

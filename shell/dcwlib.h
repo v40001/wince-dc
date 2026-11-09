@@ -27,6 +27,7 @@ void DCWinBeginFrame(DCWin *win);
 void DCWinFill(DCWin *win, int x, int y, int w, int h, COLORREF color);
 void DCWinText(DCWin *win, int x, int y, COLORREF fg, COLORREF bg, const WCHAR *text);
 void DCWinIcon(DCWin *win, int x, int y, int iconId);
+void DCWinIconBig(DCWin *win, int x, int y, int iconId); // 32x32 cell
 void DCWinEndFrame(DCWin *win);           // publishes the frame atomically
 int DCWinPollKey(DCWin *win, DWORD *key); // returns 1 and a VK if one was queued
 // Live analog-stick cursor over this window's client area. Returns 1 with client-relative x/y

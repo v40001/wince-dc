@@ -13,13 +13,14 @@
 #define DCWIN_SECTION L"DCWIN"
 #define DCWIN_MAGIC   0x44435731 // 'DCW1'
 #define DCWIN_MAXWIN  4
-#define DCWIN_MAXCMD  192 // per-window draw-command budget (rich UIs: on-screen keyboards etc.)
+#define DCWIN_MAXCMD  384 // per-window draw-command budget (Explorer's large-icon grid needs ~270 when maximized)
 #define DCWIN_MAXIN   16
 
 #define DCOP_NONE     0
 #define DCOP_FILL     1 // x,y,w,h + color
 #define DCOP_TEXT     2 // x,y + color (fg) + color2 (bg) + text
 #define DCOP_ICON     3 // x,y + color = icon id (ICON_* below)
+#define DCOP_ICONBIG  4 // x,y + color = icon id, 32x32 cell (Explorer large-icon view)
 
 // shell icon ids (shared so clients can reference them via DCOP_ICON / DCWinIcon)
 #define ICON_COMPUTER 0
@@ -46,7 +47,8 @@
 #define ICON_TASKBAR  21 // Settings -> Taskbar (mini taskbar + flag)
 #define ICON_EXPLORER 22 // Windows Explorer (window + magnifier)
 #define ICON_CMD      23 // Command Prompt (console window)
-#define ICON_COUNT    24
+#define ICON_SIP      24 // soft input panel (pencil on page, taskbar tray)
+#define ICON_COUNT    25
 
 typedef struct
 {
